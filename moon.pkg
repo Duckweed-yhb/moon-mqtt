@@ -1,0 +1,5 @@
+// 根包：模块占位（实际实现位于 protocol/ 及各后续层）。
+// 声明全后端，让 `moon check --target wasm` 不带警告通过。
+supported_targets = "wasm+wasm-gc+js+native"
+
+import {}

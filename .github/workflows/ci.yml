@@ -1,0 +1,42 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build-and-test:
+    name: build & test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup MoonBit
+        uses: hustcer/setup-moonbit@v1
+
+      # protocol/ 是纯计算包，声明覆盖全部四个后端。
+      # 四个后端逐一测试，证明「可移植的库」是构建期可验证的事实。
+      # 注意：三步刻意分开写；合并成多行 run 块在 windows-latest
+      # 会走 PowerShell，行分隔语义不同，会直接跑挂。
+      - name: Check
+        run: moon check
+
+      - name: Test (wasm)
+        run: moon test --target wasm
+
+      - name: Test (wasm-gc)
+        run: moon test --target wasm-gc
+
+      - name: Test (js)
+        run: moon test --target js
+
+      - name: Test (native)
+        run: moon test --target native

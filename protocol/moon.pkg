@@ -6,3 +6,7 @@
 /// 确定性、也最值得离线单测的部分：协议状态机与 QoS 语义的正确性，
 /// 都建立在报文编解码的确定性之上。
 supported_targets = "wasm+wasm-gc+js+native"
+
+import {
+  "moonbitlang/core/debug",
+}

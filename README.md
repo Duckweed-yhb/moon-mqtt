@@ -24,7 +24,7 @@ client/     高层异步 API（规划中）
 
 - [x] 项目骨架 + CI
 - [x] `protocol/` MQTT 3.1.1 报文编解码
-- [ ] `session/` 会话状态机
+- [x] `session/` 会话状态机（QoS2 exactly-once 握手、报文标识分配）
 - [ ] `transport/` native 网络层
 - [ ] `client/` 高层 API
 - [ ] mooncakes 发布

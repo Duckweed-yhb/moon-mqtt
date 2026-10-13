@@ -15,3 +15,7 @@
   - PINGREQ/PINGRESP/DISCONNECT
   - Topic 过滤器匹配（`+` 单层、`#` 多层）
   - 统一入站分发 `decode_packet`
+- `session/` 包：QoS2 exactly-once 会话状态机（纯计算，四后端）：
+  - 报文标识分配器（1..65535 循环）
+  - 发布侧 / 接收侧 QoS2 握手（PUBREC/PUBREL/PUBCOMP）
+  - 重复 PUBREC 重发 PUBREL、乱序 PUBREL 忽略等边界

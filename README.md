@@ -23,11 +23,21 @@ client/     高层异步 API（规划中）
 ## 状态
 
 - [x] 项目骨架 + CI
-- [x] `protocol/` MQTT 3.1.1 报文编解码（进行中）
+- [x] `protocol/` MQTT 3.1.1 报文编解码
 - [ ] `session/` 会话状态机
 - [ ] `transport/` native 网络层
 - [ ] `client/` 高层 API
 - [ ] mooncakes 发布
+
+### `protocol/` 已实现
+
+- QoS 类型（0/1/2）与固定头、剩余长度变长编解码
+- CONNECT 编码 / CONNACK 解码（返回码、session present）
+- PUBLISH 编解码 + QoS1/2 握手控制包（PUBACK/PUBREC/PUBREL/PUBCOMP）
+- SUBSCRIBE/SUBACK、UNSUBSCRIBE/UNSUBACK
+- PINGREQ/PINGRESP/DISCONNECT
+- Topic 过滤器匹配（`+` 单层、`#` 多层）
+- 统一入站分发 `decode_packet`
 
 ## 构建与测试
 

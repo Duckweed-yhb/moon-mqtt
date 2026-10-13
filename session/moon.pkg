@@ -1,0 +1,12 @@
+///|
+/// session — 会话状态机（纯计算，四后端可测）
+///
+/// 聚焦 QoS 语义与握手边界：QoS2 exactly-once（PUBREC/PUBREL/PUBCOMP）
+/// 与报文标识分配。网络传输在最薄 transport 层，本包只做状态推进，
+/// 不 import 任何 platform 依赖。
+supported_targets = "wasm+wasm-gc+js+native"
+
+import {
+  "moonbitlang/core/debug",
+  "Duckweed/moon-mqtt/protocol" @protocol,
+}

@@ -19,3 +19,12 @@
   - 报文标识分配器（1..65535 循环）
   - 发布侧 / 接收侧 QoS2 握手（PUBREC/PUBREL/PUBCOMP）
   - 重复 PUBREC 重发 PUBREL、乱序 PUBREL 忽略等边界
+- `transport/` 包（`native` only）：C FFI 原生 TCP socket，跨平台：
+  - `connect(host, port)`（IP 或域名，getaddrinfo 解析）
+  - 读/写原始字节 `read_some` / `write`、关闭 `close`
+  - 字节经 MoonBit `String` 的 UTF-16 单元承载
+- `client/` 包（`native` only）：阻塞式 MQTT 客户端：
+  - `connect` / `connect_opts`（校验 CONNACK 返回码）
+  - `publish`（QoS0 直发 / QoS1 等 PUBACK / QoS2 三段握手）、`subscribe` / `ping` / `disconnect`
+  - 读帧（固定头 + 剩余长度变长）、报文标识分配器
+- `protocol/` 补充跨包构造函数：`PublishPacket::new` / `Subscription::new` / `SubscribePacket::new`

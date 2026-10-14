@@ -11,6 +11,13 @@ pub struct PublishPacket {
   packet_id : Int
 }
 
+/// 构造 PUBLISH 参数（供消费者在库外创建报文）。
+pub fn PublishPacket::new(
+  topic : String, payload : Array[Int], qos : QoS, retain : Bool, dup : Bool, packet_id : Int
+) -> PublishPacket {
+  return { topic, payload, qos, retain, dup, packet_id }
+}
+
 /// 编码 PUBLISH 为完整报文（含固定头）。
 pub fn encode_publish(pkt : PublishPacket) -> Array[Int] {
   let body = ByteWriter::new()

@@ -1,0 +1,14 @@
+///|
+/// client — MQTT 高层客户端（阻塞式，native）
+///
+/// 把 `protocol`（报文编解码）+ `session`（QoS2 状态机）+ `transport`
+/// （原生 TCP）组装成可直接调用的客户端：`connect` → `publish` /
+/// `subscribe` / `ping` → `disconnect`。QoS 语义复用 session 状态机，
+/// 阻塞式单线程，适合 CLI / 边缘上报等确定性场景。
+supported_targets = "native"
+
+import {
+  "Duckweed/moon-mqtt/protocol" @protocol,
+  "Duckweed/moon-mqtt/session" @session,
+  "Duckweed/moon-mqtt/transport" @transport,
+}

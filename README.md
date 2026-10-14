@@ -11,13 +11,14 @@ MQTT 是物联网与边缘计算事实上的消息协议标准（OASIS 规范）
 核心差异化在于**协议状态机与 QoS 语义的正确性**——不是脚本，而是有机制的基础设施。
 
 ```
-protocol/   报文编解码（纯计算，四后端可测）   ← 当前阶段
-session/    会话状态机（规划中）
-transport/  native 网络层（规划中）
-client/     高层异步 API（规划中）
+protocol/   报文编解码（纯计算，四后端可测）   ✅
+session/    会话状态机（纯计算，四后端可测）   ✅
+transport/  native TCP 网络层（C FFI）        ✅
+client/     高层客户端 API（native）          ✅
 ```
 
-- `protocol/` 是纯计算包，不 import 任何 platform 依赖，声明覆盖全部四个后端（wasm / wasm-gc / js / native）。
+- `protocol/` 与 `session/` 是纯计算包，不 import 任何 platform 依赖，声明覆盖全部四个后端（wasm / wasm-gc / js / native）。
+- `transport/` 与 `client/` 是 `native` only：transport 用 C FFI 自写 socket（Windows winsock2 / POSIX），client 把 protocol+session+transport 组装成阻塞式 `MqttClient`。
 - QoS2 的 exactly-once（PUBREC/PUBREL/PUBCOMP 握手）与断线重连状态边界，是评审最看重、也最体现工程深度的部分。
 
 ## 状态
@@ -25,8 +26,8 @@ client/     高层异步 API（规划中）
 - [x] 项目骨架 + CI
 - [x] `protocol/` MQTT 3.1.1 报文编解码
 - [x] `session/` 会话状态机（QoS2 exactly-once 握手、报文标识分配）
-- [ ] `transport/` native 网络层
-- [ ] `client/` 高层 API
+- [x] `transport/` native 网络层（C FFI TCP socket，跨平台）
+- [x] `client/` 高层 API（connect / publish / subscribe / ping / disconnect）
 - [ ] mooncakes 发布
 
 ### `protocol/` 已实现
@@ -38,6 +39,20 @@ client/     高层异步 API（规划中）
 - PINGREQ/PINGRESP/DISCONNECT
 - Topic 过滤器匹配（`+` 单层、`#` 多层）
 - 统一入站分发 `decode_packet`
+- 跨包构造：`PublishPacket::new` / `Subscription::new` / `SubscribePacket::new`
+
+### `transport/` 已实现
+
+- 原生 TCP 连接 `connect(host, port)`（IP 或域名，getaddrinfo 解析）
+- 读/写原始字节 `read_some` / `write`
+- 关闭 `close`；`supported_targets = "native"`，字节经 MoonBit `String` 的 UTF-16 单元承载
+
+### `client/` 已实现
+
+- `connect` / `connect_opts`（自定义 CONNECT，校验 CONNACK 返回码）
+- `publish`（QoS0 直发 / QoS1 等 PUBACK / QoS2 三段握手）
+- `subscribe` / `ping` / `disconnect` / `read_packet`（读帧：固定头 + 剩余长度变长）
+- 报文标识分配器（1..65535 会话内不重复）
 
 ## 构建与测试
 

@@ -1,0 +1,14 @@
+///|
+/// transport — 原生 TCP 客户端（C FFI）
+///
+/// 只负责建立 TCP 连接、读写原始字节，不做任何协议语义。MQTT 报文编解码
+/// 在 `protocol`、会话状态机在 `session`、高层 API 在 `client`。
+///
+/// 字节经 MoonBit `String` 的 UTF-16 单元承载：每个单元存一个 0-255 的
+/// 字节值，避免 C 侧构造/返回数组（复用 moon-hive `platform/fs` 已验证的
+/// 边界写法）。`native` only：依赖 winsock（Windows）或 POSIX socket。
+supported_targets = "native"
+
+import {
+  "moonbitlang/core/string" @string,
+}

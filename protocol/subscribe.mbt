@@ -6,9 +6,21 @@ pub struct Subscription {
   qos : QoS
 }
 
+/// 构造一条订阅（供消费者在库外创建）。
+pub fn Subscription::new(topic : String, qos : QoS) -> Subscription {
+  return { topic, qos }
+}
+
 pub struct SubscribePacket {
   packet_id : Int
   subscriptions : Array[Subscription]
+}
+
+/// 构造 SUBSCRIBE 参数（供消费者在库外创建）。
+pub fn SubscribePacket::new(
+  packet_id : Int, subscriptions : Array[Subscription]
+) -> SubscribePacket {
+  return { packet_id, subscriptions }
 }
 
 /// 编码 SUBSCRIBE 为完整报文（含固定头 0x82）。

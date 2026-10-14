@@ -61,6 +61,45 @@ client.disconnect()?
 
 > `?` 为 Result 传播（出错即返回 `Err`）。`@client` / `@protocol` 为依赖包子包模块前缀。
 
+## 真实用例：物联网边缘遥测上报
+
+MQTT 是物联网/边缘计算的事实标准。moon-mqtt 让 **MoonBit 程序可以直接接入 MQTT 生态**——这是它区别于"协议玩具"的实用价值：别的语言（Python/Go/Rust/JS）都能连 MQTT，MoonBit 此前不行。
+
+一个典型的边缘遥测上报流程（`client/` 高层 API）：
+
+```moonbit
+// 1. 连到 broker（本地 mosquitto 或云 broker，如 HiveMQ Cloud / EMQX）
+let client = @client.connect("192.168.1.10", 1883, "sensor-node-07")?
+
+// 2. 周期上报传感器读数（QoS1 保证至少送达一次）
+let payload = [0x32, 0x33] // 温度 23℃ 的字节编码
+client.publish("sensors/temp", payload, @protocol.QoS.AtLeastOnce)?
+
+// 3. 订阅控制指令（QoS0 即可）
+client.subscribe("control/sensor-07/#", @protocol.QoS.AtMostOnce)?
+
+// 4. 保活 + 正常下线
+client.ping()?
+client.disconnect()?
+```
+
+这个场景里，moon-mqtt 承担的是**确定性、可移植**的那部分：协议编解码与 QoS 状态机是纯计算（四后端可测），网络层在 native 上自写 socket。它既可作为独立库被别的 MoonBit 项目 import（同 `protocol` 示例所示），也可作为 CLI/边缘程序的连接层。
+
+## 已实现的 CONNECT 字段（如实声明）
+
+README 顶部写"3.1.1 全量"，此处给出**实际支持的字段清单**，避免"声明与实际不符"：
+
+| MQTT 3.1.1 CONNECT 字段 | 支持 |
+|---|---|
+| Client Identifier（clientId） | ✅ 必填 |
+| Keep Alive | ✅ 默认 60s，可配 |
+| Clean Session | ✅ 默认 true，可配 |
+| Username / Password | ✅ 可选 |
+| Will Message（topic / payload / QoS / retain） | ✅ 可选 |
+| **持久会话恢复（Session Present / 会话续传）** | ⚠️ 见"已知限制" |
+
+对应 `protocol/connect.mbt` 的 `ConnectPacket`（字段全公开可构造）。CONNACK 的 `session_present` 与返回码（`ConnectionAccepted` … `NotAuthorized`）均已解码。
+
 ## 设计
 
 核心差异化在于**协议状态机与 QoS 语义的正确性**——不是脚本，而是有机制的基础设施。
@@ -121,6 +160,12 @@ moon run examples/pubsub      # 可运行示例
 ```
 
 CI（GitHub Actions，Linux / Windows 双矩阵）覆盖**检查 + 构建 + 四后端测试 + 示例运行**。
+
+## 已知限制（如实说明）
+
+- **持久会话恢复尚未实现**：`session/` 目前提供 QoS2 exactly-once 握手状态机与报文标识分配，但**未实现 MQTT 持久会话的断线续传**（`clean_session=false` 时的会话状态保存与恢复）。当前 `clean_session` 字段可传，但会话状态在断线后不保留。这是后续版本的主线。
+- **`transport/` 与 `client/` 仅支持 native 后端**：它们依赖 C FFI socket，`extern "C"` 在 wasm 系列后端不存在。`protocol/` 与 `session/` 不受此限（四后端可编译可测）。
+- **阻塞式 API**：`client/` 为阻塞式，适合 CLI / 边缘遥测上报等确定性场景；高并发长连接场景需要多线程或异步封装，当前未提供。
 
 ## 许可证
 

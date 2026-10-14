@@ -12,6 +12,7 @@
 
 - `transport/`：移除 `@string.from_iter` 弃用调用，改用 `@string.from_array(chars.exact_view())`，构建 0 警告。
 - README：补「安装方式」与「快速上手/可运行示例」章节，勾选 mooncakes 发布状态。
+- README：新增「真实用例：物联网边缘遥测上报」（回应"无实用价值"评审教训）、「已实现的 CONNECT 字段清单」（如实声明支持范围）、「已知限制」（如实说明持久会话恢复尚未实现、native-only、阻塞式）。
 
 ## [0.1.0] - 2026-10-15
 

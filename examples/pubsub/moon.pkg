@@ -1,0 +1,14 @@
+///|
+/// examples/pubsub — 最小可运行示例
+///
+/// 用 `protocol` 层做一次 PUBLISH 报文编解码往返。纯计算、不依赖
+/// 网络与 broker，本地即可运行，也是验收要求"至少一个可运行示例"
+/// 的落地。声明覆盖全部四个后端，可在任一后端跑。
+supported_targets = "wasm+wasm-gc+js+native"
+
+pkgtype(kind: "executable")
+
+import {
+  "Duckweed/moon-mqtt/protocol" @protocol,
+  "moonbitlang/core/debug",
+}

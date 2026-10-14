@@ -40,3 +40,8 @@ jobs:
 
       - name: Test (native)
         run: moon test --target native
+
+      # examples/pubsub：可运行示例（验收第 6 条），本地即可跑通的
+      # 报文编解码往返，不依赖真实 broker。native 下运行验证。
+      - name: Run example (pubsub)
+        run: moon run examples/pubsub

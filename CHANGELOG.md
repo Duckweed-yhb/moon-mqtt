@@ -6,6 +6,17 @@
 
 ### Added
 
+- 新增 `examples/pubsub` 可运行示例：用 `protocol` 层做 PUBLISH 编解码往返，不依赖真实 broker，本地即可运行（验收"至少一个可运行示例"）。CI 新增 `moon run examples/pubsub` 步骤。
+
+### Changed
+
+- `transport/`：移除 `@string.from_iter` 弃用调用，改用 `@string.from_array(chars.exact_view())`，构建 0 警告。
+- README：补「安装方式」与「快速上手/可运行示例」章节，勾选 mooncakes 发布状态。
+
+## [0.1.0] - 2026-10-15
+
+### Added
+
 - 项目骨架（`moon.mod` / `moon.pkg` / CI / LICENSE / README）。
 - `protocol/` 包：MQTT 3.1.1 报文编解码（纯计算，四后端），包括：
   - QoS 类型与固定头、剩余长度变长编解码
@@ -28,3 +39,7 @@
   - `publish`（QoS0 直发 / QoS1 等 PUBACK / QoS2 三段握手）、`subscribe` / `ping` / `disconnect`
   - 读帧（固定头 + 剩余长度变长）、报文标识分配器
 - `protocol/` 补充跨包构造函数：`PublishPacket::new` / `Subscription::new` / `SubscribePacket::new`
+
+### Published
+
+- 发布至 mooncakes.io：`Duckweed/moon-mqtt@0.1.0`。

@@ -95,7 +95,7 @@ pub fn MqttClient::is_session_present(self : MqttClient) -> Bool {
 
 /// 替换内部 SessionStore（用于断线重连场景：把旧 client 的 store
 /// 快照塞回新建的 client，再依据 `is_session_present()` 决定是否 replay）。
-pub fn MqttClient::set_session_store(self : MqttClient, store : @session.SessionStore) {
+pub fn MqttClient::set_session_store(self : MqttClient, store : @session.SessionStore) -> Unit {
   self.store[0] = store
 }
 
@@ -113,7 +113,11 @@ pub fn MqttClient::publish(
   let seed = @protocol.PublishPacket::new(topic, payload, qos, false, false, 0)
   let (s0, pid) = @session.record_outbound(self.store[0], seed)
   self.store[0] = s0
-  if pid == 0 && qos != @protocol.QoS::AtMostOnce {
+  let need_id = match qos {
+    @protocol.QoS::AtMostOnce => false
+    _ => true
+  }
+  if pid == 0 && need_id {
     return Err("out of packet ids")
   }
   let pkt = if pid == 0 { seed } else { seed.with_packet_id(pid) }

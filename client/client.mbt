@@ -16,6 +16,9 @@ pub struct MqttClient {
   keep_alive : Int
   connected : Bool
   store : Array[@session.SessionStore]
+  /// CONNACK 返回的 session_present 标志（MQTT §3.2.2.3）。
+  /// false 表示 broker 上没有保留的会话，本地 inflight 已被清空。
+  session_present : Array[Bool]
 }
 
 /// 用默认参数连接（keep_alive=60、clean_session=true、无认证）。
@@ -67,6 +70,10 @@ pub fn connect_opts(
       return Err("CONNACK refused: " + return_code_desc(code))
     }
   }
+  // MQTT §3.2.2.3：session_present=false 表示 broker 没有保留会话。
+  // 首次连接 store 本来就是空；重连场景下调用方应在重连前用
+  // set_session_store() 把旧 store 塞回来，再依据 is_session_present()
+  // 决定是否 replay()。
   return Ok(
     {
       tcp,
@@ -74,8 +81,22 @@ pub fn connect_opts(
       keep_alive: pkt.keep_alive,
       connected: true,
       store: [@session.SessionStore::new()],
+      session_present: [connack.session_present],
     },
   )
+}
+
+/// 返回上次 CONNACK 的 session_present 标志（MQTT §3.2.2.3）。
+/// true = broker 保留了同名 client_id 的会话，可调用 `replay_frames()`
+/// 重发在途报文；false = broker 上无保留会话，replay 无意义。
+pub fn MqttClient::is_session_present(self : MqttClient) -> Bool {
+  return self.session_present[0]
+}
+
+/// 替换内部 SessionStore（用于断线重连场景：把旧 client 的 store
+/// 快照塞回新建的 client，再依据 `is_session_present()` 决定是否 replay）。
+pub fn MqttClient::set_session_store(self : MqttClient, store : @session.SessionStore) {
+  self.store[0] = store
 }
 
 /// 发送 PUBLISH。QoS 语义：

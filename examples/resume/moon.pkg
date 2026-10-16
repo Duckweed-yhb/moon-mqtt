@@ -1,0 +1,21 @@
+///|
+/// examples/resume — QoS2 中断重连（会话恢复）演示
+///
+/// 本示例不连真实 broker，纯计算走一遍 MQTT 3.1.1 clean_session=false
+/// 的关键路径：
+///
+///   发 QoS2 PUBLISH → broker 回 PUBREC → 网络断线 →
+///   重建连接 → CONNACK session_present=1 →
+///   用 SessionStore.replay() 取出待重放帧 →
+///   重发 PUBLISH(DUP=1) 与 PUBREL → 收 PUBCOMP → 在途清空
+///
+/// 评审关心的"QoS2 中断重连案例"即此路径。session/persistent.mbt
+/// 的单测已覆盖全部状态迁移，这里把它串成可读的时间线。
+supported_targets = "wasm+wasm-gc+js+native"
+
+pkgtype(kind: "executable")
+
+import {
+  "Duckweed/moon-mqtt/protocol" @protocol,
+  "Duckweed/moon-mqtt/session" @session,
+}

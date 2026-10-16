@@ -1,16 +1,21 @@
 /// MQTT 高层客户端（阻塞式，native）。
 ///
-/// 用 `protocol`（报文编解码）+ `session`（QoS2 状态机）+ `transport`
-/// （原生 TCP）组装：`connect` → `publish` / `subscribe` / `ping` →
-/// `disconnect`。单线程阻塞式，适合 CLI / 边缘遥测上报等确定性场景。
+/// 用 `protocol`（报文编解码）+ `session`（QoS2 状态机 + 持久会话在途存储）
+/// + `transport`（原生 TCP）组装：`connect` → `publish` / `subscribe` /
+/// `ping` → `disconnect`。单线程阻塞式，适合 CLI / 边缘遥测上报等确定性场景。
+///
+/// 会话状态：`store` 是 `Array[SessionStore]` 单元素 workaround。每个
+/// publish 都会在 store 里记录在途 QoS1/2 PUBLISH，等 PUBACK/PUBREC/
+/// PUBCOMP 后推进状态；断线后调用 `replay_frames()` 可拿到待重放帧序列，
+/// 用于实现 clean_session=false 的会话恢复。
 
-/// MQTT 客户端。`next_id` 是可变报文标识计数器（单元素数组，会话内不重复）。
+/// MQTT 客户端。
 pub struct MqttClient {
   tcp : @transport.TcpClient
   client_id : String
   keep_alive : Int
   connected : Bool
-  next_id : Array[Int]
+  store : Array[@session.SessionStore]
 }
 
 /// 用默认参数连接（keep_alive=60、clean_session=true、无认证）。
@@ -68,20 +73,29 @@ pub fn connect_opts(
       client_id: pkt.client_id,
       keep_alive: pkt.keep_alive,
       connected: true,
-      next_id: [1],
+      store: [@session.SessionStore::new()],
     },
   )
 }
 
 /// 发送 PUBLISH。QoS 语义：
 /// - QoS0：直发；
-/// - QoS1：等 PUBACK；
-/// - QoS2：走 PUBREC → PUBREL → PUBCOMP 三段握手（exactly-once）。
+/// - QoS1：记录在途 → 发 PUBLISH → 等 PUBACK → 从在途清除；
+/// - QoS2：记录在途 → 发 PUBLISH → 等 PUBREC（推进到 WaitPubcomp）→
+///   发 PUBREL → 等 PUBCOMP → 从在途清除（exactly-once）。
+///
+/// 在途报文由 `store` 持久化；断线后 `replay_frames()` 可拿到待重放帧。
 pub fn MqttClient::publish(
   self : MqttClient, topic : String, payload : Array[Int], qos : @protocol.QoS
 ) -> Result[Unit, String] {
-  let pid = self.alloc_id()
-  let pkt = @protocol.PublishPacket::new(topic, payload, qos, false, false, pid)
+  // 用不带 pid 的种子报文让 store 分配并记录在途
+  let seed = @protocol.PublishPacket::new(topic, payload, qos, false, false, 0)
+  let (s0, pid) = @session.record_outbound(self.store[0], seed)
+  self.store[0] = s0
+  if pid == 0 && qos != @protocol.QoS::AtMostOnce {
+    return Err("out of packet ids")
+  }
+  let pkt = if pid == 0 { seed } else { seed.with_packet_id(pid) }
   match self.tcp.write(@protocol.encode_publish(pkt)) {
     Err(e) => return Err(e)
     Ok(_) => ()
@@ -90,26 +104,33 @@ pub fn MqttClient::publish(
     @protocol.QoS::AtMostOnce => return Ok(())
     @protocol.QoS::AtLeastOnce =>
       match self.read_packet() {
-        Ok(@protocol.IncomingPacket::Puback(id)) if id == pid => Ok(())
+        Ok(@protocol.IncomingPacket::Puback(id)) if id == pid => {
+          self.store[0] = @session.on_puback(self.store[0], pid)
+          Ok(())
+        }
         Ok(@protocol.IncomingPacket::Puback(_)) => Err("PUBACK id mismatch")
         Ok(_) => Err("expected PUBACK")
         Err(e) => Err(e)
       }
     @protocol.QoS::ExactlyOnce => {
       match self.read_packet() {
-        Ok(@protocol.IncomingPacket::Pubrec(id)) if id == pid =>
-          match @session.qos2_on_pubrec(@session.qos2_send_started(), id) {
-            (_, pubrel) => match self.tcp.write(pubrel) {
-              Err(e) => return Err(e)
-              Ok(_) => ()
-            }
+        Ok(@protocol.IncomingPacket::Pubrec(id)) if id == pid => {
+          let (s1, pubrel) = @session.on_pubrec(self.store[0], pid)
+          self.store[0] = s1
+          match self.tcp.write(pubrel) {
+            Err(e) => return Err(e)
+            Ok(_) => ()
           }
+        }
         Ok(@protocol.IncomingPacket::Pubrec(_)) => return Err("PUBREC id mismatch")
         Ok(_) => return Err("expected PUBREC")
         Err(e) => return Err(e)
       }
       match self.read_packet() {
-        Ok(@protocol.IncomingPacket::Pubcomp(id)) if id == pid => Ok(())
+        Ok(@protocol.IncomingPacket::Pubcomp(id)) if id == pid => {
+          self.store[0] = @session.on_pubcomp(self.store[0], pid)
+          Ok(())
+        }
         Ok(@protocol.IncomingPacket::Pubcomp(_)) => Err("PUBCOMP id mismatch")
         Ok(_) => Err("expected PUBCOMP")
         Err(e) => Err(e)
@@ -118,11 +139,16 @@ pub fn MqttClient::publish(
   }
 }
 
-/// 订阅一个主题过滤器，等 SUBACK 确认。
+/// 订阅一个主题过滤器，等 SUBACK 确认。SUBSCRIBE 的 packet_id 从 store
+/// 分配（与 PUBLISH 共享 id 空间），但不入 inflight（同步握手完成即释放）。
 pub fn MqttClient::subscribe(
   self : MqttClient, topic : String, qos : @protocol.QoS
 ) -> Result[Unit, String] {
-  let pid = self.alloc_id()
+  let (s0, pid) = @session.alloc_control_packet_id(self.store[0])
+  self.store[0] = s0
+  if pid == 0 {
+    return Err("out of packet ids")
+  }
   let subs = [@protocol.Subscription::new(topic, qos)]
   let pkt = @protocol.SubscribePacket::new(pid, subs)
   match self.tcp.write(@protocol.encode_subscribe(pkt)) {
@@ -160,6 +186,17 @@ pub fn MqttClient::disconnect(self : MqttClient) -> Result[Unit, String] {
   return res
 }
 
+/// 返回当前在途（尚未完成握手）的 QoS1/2 PUBLISH 的待重放帧序列。
+/// 用于 clean_session=false 的会话恢复：调用方重新建立 TCP + CONNECT 后，
+/// 依次 write 这些帧（QoS1/2 在途 PUBLISH 带 DUP=1），再继续等
+/// PUBACK/PUBREC/PUBCOMP。
+///
+/// 帧顺序与在途表插入顺序一致；WaitPubcomp 状态的条目会产出 PUBREL 而非
+/// DUP PUBLISH（见 `session.persistent.replay`）。
+pub fn MqttClient::replay_frames(self : MqttClient) -> Array[Array[Int]] {
+  return @session.replay(self.store[0])
+}
+
 /// 读一个入站报文并解码。
 pub fn MqttClient::read_packet(
   self : MqttClient
@@ -168,14 +205,6 @@ pub fn MqttClient::read_packet(
     Ok(bytes) => @protocol.decode_packet(bytes)
     Err(e) => Err(e)
   }
-}
-
-/// 分配报文标识（1..65535 循环，会话内不重复）。
-fn MqttClient::alloc_id(self : MqttClient) -> Int {
-  let id = self.next_id[0]
-  let nid = if id >= 0xFFFF { 1 } else { id + 1 }
-  self.next_id[0] = nid
-  return id
 }
 
 // ---------- 内部 ----------

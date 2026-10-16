@@ -137,6 +137,18 @@ pub fn record_outbound(
   }
 }
 
+/// 为控制报文（SUBSCRIBE/UNSUBSCRIBE）分配 packet_id。
+/// 与 PUBLISH 共享 1..65535 id 空间，但不入 inflight（控制报文握手
+/// 是同步完成的，返回 SUBACK/UNSUBACK 后 id 即释放）。
+pub fn alloc_control_packet_id(store : SessionStore) -> (SessionStore, Int) {
+  let pid = next_free_id(store)
+  if pid == 0 {
+    return (store, 0)
+  }
+  let next = if pid >= 0xFFFF { 1 } else { pid + 1 }
+  return ({ inflight: store.inflight, next_id: next }, pid)
+}
+
 fn remove_by_id(store : SessionStore, packet_id : Int) -> SessionStore {
   let out : Array[InFlightEntry] = []
   for e in store.inflight {

@@ -1,8 +1,8 @@
 # moon-mqtt
 
-MoonBit 生态的 **MQTT 3.1.1 / 5.0 异步客户端库**。
+MoonBit 生态的 **MQTT 3.1.1 / 5.0 客户端库（当前阻塞式，异步封装为后续路线）**。
 
-MQTT 是物联网与边缘计算事实上的消息协议标准（OASIS 规范），而 MoonBit 生态目前没有任何 MQTT 客户端。moon-mqtt 补齐这一环：以 OASIS MQTT 3.1.1（全量）/ 5.0（核心子集）公开规范为实现依据，交付纯 MoonBit 的异步发布/订阅客户端。
+MQTT 是物联网与边缘计算事实上的消息协议标准（OASIS 规范），而 MoonBit 生态目前没有任何 MQTT 客户端。moon-mqtt 补齐这一环：以 OASIS MQTT 3.1.1（全量）/ 5.0（核心子集）公开规范为实现依据，交付纯 MoonBit 的发布/订阅客户端（`client/` 高层 API 为阻塞式，适合 CLI / 边缘遥测；`protocol/` + `session/` 纯计算层四后端可测）。
 
 > 参考移植（原创重写，不复制源码）：API 设计参考 [MQTT.js](https://github.com/mqttjs/MQTT.js)（MIT），协议行为参考 [Eclipse Paho C client](https://github.com/eclipse/paho.mqtt.c)（EPL-2.0/EDL-1.0）。本项目许可证 **MIT**。
 
@@ -166,6 +166,9 @@ CI（GitHub Actions，Linux / Windows 双矩阵）覆盖**检查 + 构建 + 四�
 - **持久会话恢复尚未端到端打通**：`session/` 已提供在途出站报文的纯计算骨架（`SessionStore`：记录 QoS1/2 在途 PUBLISH、随 PUBACK/PUBREC/PUBCOMP 推进状态、断线重连 `replay()` 产出 DUP=1 重发帧，并支持落盘后 `from_parts` 恢复），但 **`client/` 尚未接入**——`clean_session=false` 时的实际状态保存/恢复、重连后依据 CONNACK `session_present` 决定是否重放与重订阅，仍未接线。这是后续版本的主线。
 - **`transport/` 与 `client/` 仅支持 native 后端**：它们依赖 C FFI socket，`extern "C"` 在 wasm 系列后端不存在。`protocol/` 与 `session/` 不受此限（四后端可编译可测）。
 - **阻塞式 API**：`client/` 为阻塞式，适合 CLI / 边缘遥测上报等确定性场景；高并发长连接场景需要多线程或异步封装，当前未提供。
+- **publish/subscribe/ping 调用期间收到的入站 PUBLISH 会被丢弃**：阻塞单线程模型下，`publish` 等 PUBACK/PUBREC/PUBCOMP、`subscribe` 等 SUBACK、`ping` 等 PINGRESP 时，若 broker 恰好推来你订阅主题的入站 PUBLISH，当前代码会返回 `"expected XXX"` 错误并把该报文丢掉。需要边发布边接收订阅消息的场景，应改用专门的接收循环（后续版本提供）。
+- **读帧无超时**：`read_frame` 在 broker 不回包时会永久阻塞，调用方需自行控制应用层超时。
+- **`client/` 层无独立单测**：client 是 native + C FFI，无法在 wasm 后端直接实例化；其逻辑正确性由 `protocol/`（帧编解码）与 `session/`（QoS 状态机）的纯层测试（53 个）+ `examples/pubsub` 手动验证共同保障。client 层的 transport 抽象与可测性改进是后续版本的工程债。
 
 ## 许可证
 

@@ -84,16 +84,41 @@ pub fn SessionStore::inflight_count(s : SessionStore) -> Int {
   return s.inflight.length()
 }
 
+/// 扫描 next_id 起的 1..65535 范围，找第一个未被 inflight 占用的 packet_id。
+/// MQTT §2.3.1：未完成握手期间的 packet_id 必须保留，不能复用。
+/// 全部占用时返回 0（调用方应报"out of packet ids"错误）。
+fn next_free_id(store : SessionStore) -> Int {
+  // 从游标开始扫描一圈（最多 65535 次）
+  let mut candidate = store.next_id
+  for _ in 0..<65535 {
+    let mut occupied = false
+    for e in store.inflight {
+      if e.packet_id == candidate {
+        occupied = true
+      }
+    }
+    if !occupied {
+      return candidate
+    }
+    candidate = if candidate >= 0xFFFF { 1 } else { candidate + 1 }
+  }
+  return 0
+}
+
 /// 记录一次出站 PUBLISH 并分配报文标识。
 /// QoS0 不入在途（握手无确认），返回 id=0 且不改变存储。
 /// QoS1 → WaitingPuback；QoS2 → WaitPubrec。
+/// 分配时跳过 inflight 已占用的 id（MQTT §2.3.1）；65535 个全部占用时 id=0 表示错误。
 pub fn record_outbound(
   store : SessionStore, pkt : @protocol.PublishPacket,
 ) -> (SessionStore, Int) {
   match pkt.qos {
     @protocol.QoS::AtMostOnce => return (store, 0)
     _ => {
-      let pid = store.next_id
+      let pid = next_free_id(store)
+      if pid == 0 {
+        return (store, 0) // 全部 id 已占用，调用方应处理
+      }
       let next = if pid >= 0xFFFF { 1 } else { pid + 1 }
       let stage = match pkt.qos {
         @protocol.QoS::AtLeastOnce => SendStage::WaitingPuback
@@ -308,4 +333,19 @@ test "snapshot roundtrip via from_parts" {
   assert_eq(restored.inflight_count(), 1)
   // 重放内容与原存储一致
   assert_eq(replay(restored), replay(s1))
+}
+
+test "next id skips inflight occupied" {
+  // 第一次 publish 分配 id=1 并在途（未 ACK）
+  let s0 = SessionStore::new()
+  let (s1, pid1) = record_outbound(s0, mk_publish(1))
+  assert_eq(pid1, 1)
+  // 第二次 publish 时 id=1 仍被占用，应跳到 id=2（游标单调前进）
+  let (s2, pid2) = record_outbound(s1, mk_publish(1))
+  assert_eq(pid2, 2)
+  // PUBACK 清掉 id=1 后，游标已前进到 3；id=2 仍在途，下次拿 3（不是复用 1）
+  let s3 = on_puback(s2, pid1)
+  match record_outbound(s3, mk_publish(1)) {
+    (_s4, pid3) => assert_eq(pid3, 3)
+  }
 }

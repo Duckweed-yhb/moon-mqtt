@@ -33,10 +33,15 @@ pub fn connect(host : String, port : Int) -> Result[TcpClient, String] {
 }
 
 /// 写入全部字节。失败返回 `Err`。
+/// 写入全部字节。C 端已循环写满；MoonBit 侧仍校验返回值 == 期望长度，
+/// 对端中途关闭（返回 0 或不足）时报错。
 pub fn TcpClient::write(self : TcpClient, bytes : Array[Int]) -> Result[Unit, String] {
   let n = tcp_write_ffi(self.fd, bytes_to_latin1(bytes))
   if n < 0 {
     return Err("TCP write failed")
+  }
+  if n != bytes.length() {
+    return Err("TCP write short: " + n.to_string() + "/" + bytes.length().to_string())
   }
   return Ok(())
 }

@@ -21,6 +21,7 @@ pub fn connect(
 }
 
 /// 用自定义 CONNECT 参数连接，握手 CONNACK 通过后返回已连接客户端。
+/// 任何失败路径都会关闭已建立的 TCP 连接，避免 fd 泄漏。
 pub fn connect_opts(
   host : String, port : Int, pkt : @protocol.ConnectPacket
 ) -> Result[MqttClient, String] {
@@ -30,24 +31,36 @@ pub fn connect_opts(
   }
   // 发 CONNECT
   match tcp.write(@protocol.encode_connect(pkt)) {
-    Err(e) => return Err(e)
+    Err(e) => {
+      tcp.close()
+      return Err(e)
+    }
     Ok(_) => ()
   }
   // 读 CONNACK
   let connack = match read_frame(tcp) {
     Ok(bytes) => match @protocol.decode_packet(bytes) {
       Ok(@protocol.IncomingPacket::Connack(c)) => c
-      Ok(_) => return Err("expected CONNACK")
-      Err(e) => return Err(e)
+      Ok(_) => {
+        tcp.close()
+        return Err("expected CONNACK")
+      }
+      Err(e) => {
+        tcp.close()
+        return Err(e)
+      }
     }
-    Err(e) => return Err(e)
+    Err(e) => {
+      tcp.close()
+      return Err(e)
+    }
   }
-  let accepted = match connack.return_code {
-    @protocol.ConnectReturnCode::ConnectionAccepted => true
-    _ => false
-  }
-  if !accepted {
-    return Err("CONNACK refused: " + return_code_desc(connack.return_code))
+  match connack.return_code {
+    @protocol.ConnectReturnCode::ConnectionAccepted => ()
+    code => {
+      tcp.close()
+      return Err("CONNACK refused: " + return_code_desc(code))
+    }
   }
   return Ok(
     {
@@ -137,15 +150,14 @@ pub fn MqttClient::ping(self : MqttClient) -> Result[Unit, String] {
   }
 }
 
-/// 发送 DISCONNECT 并关闭连接。
+/// 发送 DISCONNECT 并关闭连接。写失败时也强制关闭 socket，避免 fd 泄漏。
 pub fn MqttClient::disconnect(self : MqttClient) -> Result[Unit, String] {
-  match self.tcp.write(@protocol.encode_disconnect()) {
+  let res = match self.tcp.write(@protocol.encode_disconnect()) {
     Err(e) => Err(e)
-    Ok(_) => {
-      self.tcp.close()
-      Ok(())
-    }
+    Ok(_) => Ok(())
   }
+  self.tcp.close()
+  return res
 }
 
 /// 读一个入站报文并解码。

@@ -92,7 +92,8 @@ int64_t mqtt_tcp_connect(moonbit_string_t host, int32_t port) {
 #endif
 }
 
-/* 写入全部字节；返回写入字节数，失败返回 -1。 */
+/* 写入全部字节；循环 send/write 直到全部写完或出错。
+   返回实际写入字节数（== n 表示全部写完）；失败返回 -1。 */
 int32_t mqtt_tcp_write(int64_t fd, moonbit_string_t data) {
   int32_t n = (int32_t)Moonbit_array_length(data);
   if (n == 0) {
@@ -105,14 +106,26 @@ int32_t mqtt_tcp_write(int64_t fd, moonbit_string_t data) {
   for (int32_t i = 0; i < n; i++) {
     buf[i] = (char)(data[i] & 0xFF);
   }
-  int32_t sent;
+  int32_t total = 0;
+  while (total < n) {
+    int32_t sent;
 #ifdef _WIN32
-  sent = (int32_t)send((SOCKET)fd, buf, n, 0);
+    sent = (int32_t)send((SOCKET)fd, buf + total, (size_t)(n - total), 0);
 #else
-  sent = (int32_t)write((int)fd, buf, (size_t)n);
+    sent = (int32_t)write((int)fd, buf + total, (size_t)(n - total));
 #endif
+    if (sent < 0) {
+      free(buf);
+      return -1;
+    }
+    if (sent == 0) {
+      /* 对端关闭 */
+      break;
+    }
+    total += sent;
+  }
   free(buf);
-  return sent < 0 ? -1 : sent;
+  return total;
 }
 
 /* 读最多 max 字节，返回 String（每单元一字节）。EOF/错误返回空串。 */

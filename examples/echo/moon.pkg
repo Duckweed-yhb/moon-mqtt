@@ -1,9 +1,0 @@
-/// echo 示例：订阅 test/#，收到 PUBLISH 后回发 echo/<topic>。
-/// 演示 subscribe_with_handler + poll_once。
-supported_targets = "native"
-
-import {
-  "Duckweed/moon-mqtt/client" @client,
-  "Duckweed/moon-mqtt/protocol" @protocol,
-  "moonbitlang/core/debug" @debug,
-}

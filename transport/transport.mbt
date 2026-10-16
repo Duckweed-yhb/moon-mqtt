@@ -16,6 +16,8 @@ extern "C" fn tcp_read_ffi(fd : Int64, max : Int) -> String = "mqtt_tcp_read"
 
 extern "C" fn tcp_close_ffi(fd : Int64) -> Unit = "mqtt_tcp_close"
 
+extern "C" fn tcp_wait_read_ffi(fd : Int64, timeout_ms : Int) -> Int = "mqtt_tcp_wait_read"
+
 /// 已连接的原生 TCP 客户端。
 pub struct TcpClient {
   fd : Int64
@@ -62,6 +64,21 @@ pub fn TcpClient::read_some(self : TcpClient, max : Int) -> Result[Array[Int], S
 /// 关闭连接。
 pub fn TcpClient::close(self : TcpClient) -> Unit {
   tcp_close_ffi(self.fd)
+}
+
+/// 等 socket 可读。返回：
+/// - `Ok(true)`：数据可读，可安全 read_some
+/// - `Ok(false)`：超时（timeout_ms 内无数据）
+/// - `Err(...)`：select 错误
+pub fn TcpClient::wait_read(self : TcpClient, timeout_ms : Int) -> Result[Bool, String] {
+  let r = tcp_wait_read_ffi(self.fd, timeout_ms)
+  if r == 0 {
+    return Ok(true)
+  }
+  if r == -1 {
+    return Ok(false)
+  }
+  return Err("wait_read failed")
 }
 
 /// 把字节数组编码成"每个字节一个 UTF-16 单元"的 String，作为 C 侧字节载体。

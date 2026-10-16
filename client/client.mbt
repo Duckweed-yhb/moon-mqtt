@@ -228,10 +228,16 @@ pub fn MqttClient::subscribe_with_handler(
 /// - PUBACK/PUBREC/PUBCOMP：推进在途 store（publish 同步路径通常已处理，
 ///   这里兜底）；
 /// - PINGRESP/SUBACK/UNSUBACK：静默消化；
-/// - DISCONNECT：标记 connected=false。
+/// - PUBREL：兜底静默。
 ///
-/// 调用方在自己的循环里反复调 `poll_once()` 即可接收 broker 推送的消息。
-pub fn MqttClient::poll_once(self : MqttClient) -> Result[Unit, String] {
+/// 返回 `Ok(true)` 表示处理了一帧；`Ok(false)` 表示 timeout_ms 内无数据
+/// （调用方可借此检查是否该发 PINGREQ 保活）；`Err` 表示读错误。
+pub fn MqttClient::poll_once(self : MqttClient, timeout_ms : Int) -> Result[Bool, String] {
+  match self.tcp.wait_read(timeout_ms) {
+    Ok(false) => return Ok(false)
+    Ok(true) => ()
+    Err(e) => return Err(e)
+  }
   let pkt = match self.read_packet() {
     Ok(p) => p
     Err(e) => return Err(e)
@@ -274,32 +280,32 @@ pub fn MqttClient::poll_once(self : MqttClient) -> Result[Unit, String] {
           (reg.handler)(p.topic, p.payload)
         }
       }
-      Ok(())
+      Ok(true)
     }
     @protocol.IncomingPacket::Puback(id) => {
       self.store[0] = @session.on_puback(self.store[0], id)
-      Ok(())
+      Ok(true)
     }
     @protocol.IncomingPacket::Pubrec(id) => {
       let (s1, pubrel) = @session.on_pubrec(self.store[0], id)
       self.store[0] = s1
       match self.tcp.write(pubrel) {
-        Ok(_) => Ok(())
+        Ok(_) => Ok(true)
         Err(e) => Err(e)
       }
     }
     @protocol.IncomingPacket::Pubcomp(id) => {
       self.store[0] = @session.on_pubcomp(self.store[0], id)
-      Ok(())
+      Ok(true)
     }
     // PUBREL 只在出站 QoS2 握手的同步路径里出现，poll 阶段兜底静默
-    @protocol.IncomingPacket::Pubrel(_) => Ok(())
+    @protocol.IncomingPacket::Pubrel(_) => Ok(true)
     // SUBACK/UNSUBACK/PINGRESP：同步握手已消化，静默
-    @protocol.IncomingPacket::Suback(_) => Ok(())
-    @protocol.IncomingPacket::Unsuback(_) => Ok(())
-    @protocol.IncomingPacket::PingResp => Ok(())
+    @protocol.IncomingPacket::Suback(_) => Ok(true)
+    @protocol.IncomingPacket::Unsuback(_) => Ok(true)
+    @protocol.IncomingPacket::PingResp => Ok(true)
     // CONNACK 不会在 poll 阶段出现
-    @protocol.IncomingPacket::Connack(_) => Ok(())
+    @protocol.IncomingPacket::Connack(_) => Ok(true)
   }
 }
 

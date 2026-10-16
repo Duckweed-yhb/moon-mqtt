@@ -163,3 +163,22 @@ void mqtt_tcp_close(int64_t fd) {
   close((int)fd);
 #endif
 }
+
+/* 等 socket 可读。
+   返回：0 = 数据可读；-1 = 超时；-2 = 错误。 */
+int32_t mqtt_tcp_wait_read(int64_t fd, int32_t timeout_ms) {
+  fd_set rfds;
+  struct timeval tv;
+  FD_ZERO(&rfds);
+  FD_SET((SOCKET)fd, &rfds);
+  tv.tv_sec = timeout_ms / 1000;
+  tv.tv_usec = (timeout_ms % 1000) * 1000;
+#ifdef _WIN32
+  int r = select(0, &rfds, NULL, NULL, &tv);
+#else
+  int r = select((int)fd + 1, &rfds, NULL, NULL, &tv);
+#endif
+  if (r < 0) return -2;
+  if (r == 0) return -1;
+  return 0;
+}

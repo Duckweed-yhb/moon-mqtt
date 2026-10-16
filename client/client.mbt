@@ -9,16 +9,26 @@
 /// PUBCOMP 后推进状态；断线后调用 `replay_frames()` 可拿到待重放帧序列，
 /// 用于实现 clean_session=false 的会话恢复。
 
+/// 一条本地订阅注册：topic filter + 收到 PUBLISH 时的回调。
+/// 回调参数是 (topic, payload)，QoS 由入站 PUBLISH 帧自带。
+type SubHandler = (String, Array[Int]) -> Unit
+
+struct SubscriptionReg {
+  filter : String
+  handler : SubHandler
+}
+
 /// MQTT 客户端。
 pub struct MqttClient {
   tcp : @transport.TcpClient
   client_id : String
   keep_alive : Int
-  connected : Bool
   store : Array[@session.SessionStore]
   /// CONNACK 返回的 session_present 标志（MQTT §3.2.2.3）。
   /// false 表示 broker 上没有保留的会话，本地 inflight 已被清空。
   session_present : Array[Bool]
+  /// 本地订阅注册表：poll() 收到 PUBLISH 时按 topic filter 匹配并派发。
+  subs : Array[SubscriptionReg]
 }
 
 /// 用默认参数连接（keep_alive=60、clean_session=true、无认证）。
@@ -79,9 +89,9 @@ pub fn connect_opts(
       tcp,
       client_id: pkt.client_id,
       keep_alive: pkt.keep_alive,
-      connected: true,
       store: [@session.SessionStore::new()],
       session_present: [connack.session_present],
+      subs: [],
     },
   )
 }
@@ -185,6 +195,111 @@ pub fn MqttClient::subscribe(
     Ok(@protocol.IncomingPacket::Suback(_)) => Err("SUBACK id mismatch")
     Ok(_) => Err("expected SUBACK")
     Err(e) => Err(e)
+  }
+}
+
+/// 订阅并注册回调：发 SUBSCRIBE 等 SUBACK，成功后把 (filter, handler)
+/// 存进本地注册表。之后调 `poll_once()` 收到匹配的 PUBLISH 时会逐个调用
+/// handler(topic, payload)。同一个 filter 重复订阅会覆盖旧 handler。
+pub fn MqttClient::subscribe_with_handler(
+  self : MqttClient, topic : String, qos : @protocol.QoS, handler : SubHandler
+) -> Result[Unit, String] {
+  match self.subscribe(topic, qos) {
+    Ok(_) => {
+      // 覆盖同 filter 的旧 handler
+      let mut i = 0
+      while i < self.subs.length() {
+        if self.subs[i].filter == topic {
+          self.subs[i] = { filter: topic, handler }
+          return Ok(())
+        }
+        i = i + 1
+      }
+      self.subs.push({ filter: topic, handler })
+      Ok(())
+    }
+    Err(e) => Err(e)
+  }
+}
+
+/// 阻塞读一帧入站报文并派发：
+/// - PUBLISH：按 topic filter 匹配本地订阅表，调对应 handler；
+///   QoS1/2 的 PUBLISH 会自动回 PUBACK / PUBREC+PUBREL；
+/// - PUBACK/PUBREC/PUBCOMP：推进在途 store（publish 同步路径通常已处理，
+///   这里兜底）；
+/// - PINGRESP/SUBACK/UNSUBACK：静默消化；
+/// - DISCONNECT：标记 connected=false。
+///
+/// 调用方在自己的循环里反复调 `poll_once()` 即可接收 broker 推送的消息。
+pub fn MqttClient::poll_once(self : MqttClient) -> Result[Unit, String] {
+  let pkt = match self.read_packet() {
+    Ok(p) => p
+    Err(e) => return Err(e)
+  }
+  match pkt {
+    @protocol.IncomingPacket::Publish(p) => {
+      // QoS1/2 先回 ACK，再调用户回调（慢回调不阻塞 ACK）
+      match p.qos {
+        @protocol.QoS::AtLeastOnce => {
+          let ack = @protocol.encode_puback(p.packet_id)
+          match self.tcp.write(ack) {
+            Ok(_) => ()
+            Err(e) => return Err(e)
+          }
+        }
+        @protocol.QoS::ExactlyOnce => {
+          let rec = @protocol.encode_pubrec(p.packet_id)
+          match self.tcp.write(rec) {
+            Ok(_) => ()
+            Err(e) => return Err(e)
+          }
+          // 等 PUBREL，回 PUBCOMP（MQTT §4.3.3 服务端侧流程）
+          match self.read_packet() {
+            Ok(@protocol.IncomingPacket::Pubrel(id)) if id == p.packet_id => {
+              let comp = @protocol.encode_pubcomp(p.packet_id)
+              match self.tcp.write(comp) {
+                Ok(_) => ()
+                Err(e) => return Err(e)
+              }
+            }
+            Ok(_) => return Err("expected PUBREL")
+            Err(e) => return Err(e)
+          }
+        }
+        @protocol.QoS::AtMostOnce => ()
+      }
+      // topic 匹配派发
+      for reg in self.subs {
+        if @protocol.topic_matches(reg.filter, p.topic) {
+          (reg.handler)(p.topic, p.payload)
+        }
+      }
+      Ok(())
+    }
+    @protocol.IncomingPacket::Puback(id) => {
+      self.store[0] = @session.on_puback(self.store[0], id)
+      Ok(())
+    }
+    @protocol.IncomingPacket::Pubrec(id) => {
+      let (s1, pubrel) = @session.on_pubrec(self.store[0], id)
+      self.store[0] = s1
+      match self.tcp.write(pubrel) {
+        Ok(_) => Ok(())
+        Err(e) => Err(e)
+      }
+    }
+    @protocol.IncomingPacket::Pubcomp(id) => {
+      self.store[0] = @session.on_pubcomp(self.store[0], id)
+      Ok(())
+    }
+    // PUBREL 只在出站 QoS2 握手的同步路径里出现，poll 阶段兜底静默
+    @protocol.IncomingPacket::Pubrel(_) => Ok(())
+    // SUBACK/UNSUBACK/PINGRESP：同步握手已消化，静默
+    @protocol.IncomingPacket::Suback(_) => Ok(())
+    @protocol.IncomingPacket::Unsuback(_) => Ok(())
+    @protocol.IncomingPacket::PingResp => Ok(())
+    // CONNACK 不会在 poll 阶段出现
+    @protocol.IncomingPacket::Connack(_) => Ok(())
   }
 }
 

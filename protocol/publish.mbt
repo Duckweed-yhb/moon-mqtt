@@ -18,6 +18,16 @@ pub fn PublishPacket::new(
   return { topic, payload, qos, retain, dup, packet_id }
 }
 
+/// 返回一个仅改写报文标识的副本（发送侧分配 packet_id 后回填用）。
+pub fn PublishPacket::with_packet_id(pkt : PublishPacket, packet_id : Int) -> PublishPacket {
+  return { topic: pkt.topic, payload: pkt.payload, qos: pkt.qos, retain: pkt.retain, dup: pkt.dup, packet_id }
+}
+
+/// 返回一个仅改写 DUP 标记的副本（断线重连重放时置 DUP=1）。
+pub fn PublishPacket::with_dup(pkt : PublishPacket, dup : Bool) -> PublishPacket {
+  return { topic: pkt.topic, payload: pkt.payload, qos: pkt.qos, retain: pkt.retain, dup, packet_id: pkt.packet_id }
+}
+
 /// 编码 PUBLISH 为完整报文（含固定头）。
 pub fn encode_publish(pkt : PublishPacket) -> Array[Int] {
   let body = ByteWriter::new()

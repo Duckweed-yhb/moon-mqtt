@@ -6,6 +6,7 @@
 
 ### Added
 
+- `session/` 新增持久会话在途存储纯计算骨架 `SessionStore`（clean_session=false 断线续传的第一步）：记录出站 QoS1/2 PUBLISH 的在途状态（`SendStage`: WaitingPuback/WaitPubrec/WaitPubcomp），收到 PUBACK/PUBREC/PUBCOMP 推进状态，断线重连时 `replay()` 按发送序产出 DUP=1 的 PUBLISH 与待重发的 PUBREL；`from_parts`/`inflight_entries` 支持落盘后恢复。四后端可测，共新增 8 个单测。配套在 `protocol/` 新增 `PublishPacket::with_packet_id` / `with_dup` 不可变副本辅助方法。
 - 新增 `examples/pubsub` 可运行示例：用 `protocol` 层做 PUBLISH 编解码往返，不依赖真实 broker，本地即可运行（验收"至少一个可运行示例"）。CI 新增 `moon run examples/pubsub` 步骤。
 
 ### Changed

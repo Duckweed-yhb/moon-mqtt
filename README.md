@@ -119,7 +119,7 @@ client/     高层客户端 API（native）          ✅
 
 - [x] 项目骨架 + CI
 - [x] `protocol/` MQTT 3.1.1 报文编解码
-- [x] `session/` 会话状态机（QoS2 exactly-once 握手、报文标识分配）
+- [x] `session/` 会话状态机（QoS2 exactly-once 握手、报文标识分配、在途持久会话骨架）
 - [x] `transport/` native 网络层（C FFI TCP socket，跨平台）
 - [x] `client/` 高层 API（connect / publish / subscribe / ping / disconnect）
 - [x] **mooncakes 发布（`Duckweed/moon-mqtt@0.1.0`）**
@@ -163,7 +163,7 @@ CI（GitHub Actions，Linux / Windows 双矩阵）覆盖**检查 + 构建 + 四�
 
 ## 已知限制（如实说明）
 
-- **持久会话恢复尚未实现**：`session/` 目前提供 QoS2 exactly-once 握手状态机与报文标识分配，但**未实现 MQTT 持久会话的断线续传**（`clean_session=false` 时的会话状态保存与恢复）。当前 `clean_session` 字段可传，但会话状态在断线后不保留。这是后续版本的主线。
+- **持久会话恢复尚未端到端打通**：`session/` 已提供在途出站报文的纯计算骨架（`SessionStore`：记录 QoS1/2 在途 PUBLISH、随 PUBACK/PUBREC/PUBCOMP 推进状态、断线重连 `replay()` 产出 DUP=1 重发帧，并支持落盘后 `from_parts` 恢复），但 **`client/` 尚未接入**——`clean_session=false` 时的实际状态保存/恢复、重连后依据 CONNACK `session_present` 决定是否重放与重订阅，仍未接线。这是后续版本的主线。
 - **`transport/` 与 `client/` 仅支持 native 后端**：它们依赖 C FFI socket，`extern "C"` 在 wasm 系列后端不存在。`protocol/` 与 `session/` 不受此限（四后端可编译可测）。
 - **阻塞式 API**：`client/` 为阻塞式，适合 CLI / 边缘遥测上报等确定性场景；高并发长连接场景需要多线程或异步封装，当前未提供。
 

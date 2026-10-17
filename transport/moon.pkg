@@ -8,7 +8,3 @@
 /// 字节值，避免 C 侧构造/返回数组（复用 moon-hive `platform/fs` 已验证的
 /// 边界写法）。`native` only：依赖 winsock（Windows）或 POSIX socket。
 supported_targets = "native"
-
-import {
-  "moonbitlang/core/string" @string,
-}

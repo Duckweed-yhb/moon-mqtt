@@ -87,5 +87,5 @@ fn bytes_to_latin1(bytes : Array[Int]) -> String {
   for x in bytes {
     chars.push(x.to_char().unwrap())
   }
-  return @string.from_array(chars.exact_view())
+  return String::from_array(chars.exact_view())
 }

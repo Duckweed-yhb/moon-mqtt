@@ -1,8 +1,8 @@
 # moon-mqtt
 
-MoonBit 生态的 **MQTT 3.1.1 / 5.0 客户端库（当前阻塞式，异步封装为后续路线）**。
+MoonBit 生态的 **MQTT 3.1.1 客户端库（当前阻塞式，异步封装为后续路线）**。
 
-MQTT 是物联网与边缘计算事实上的消息协议标准（OASIS 规范），而 MoonBit 生态目前没有任何 MQTT 客户端。moon-mqtt 补齐这一环：以 OASIS MQTT 3.1.1（全量）/ 5.0（核心子集）公开规范为实现依据，交付纯 MoonBit 的发布/订阅客户端（`client/` 高层 API 为阻塞式，适合 CLI / 边缘遥测；`protocol/` + `session/` 纯计算层四后端可测）。
+MQTT 是物联网与边缘计算事实上的消息协议标准（OASIS 规范），而 MoonBit 生态目前没有任何 MQTT 客户端。moon-mqtt 补齐这一环：以 OASIS MQTT 3.1.1 公开规范为实现依据（MQTT 5.0 为后续路线），交付纯 MoonBit 的发布/订阅客户端（`client/` 高层 API 为阻塞式，适合 CLI / 边缘遥测；`protocol/` + `session/` 纯计算层四后端可测）。
 
 > 参考移植（原创重写，不复制源码）：API 设计参考 [MQTT.js](https://github.com/mqttjs/MQTT.js)（MIT），协议行为参考 [Eclipse Paho C client](https://github.com/eclipse/paho.mqtt.c)（EPL-2.0/EDL-1.0）。本项目许可证 **MIT**。
 
@@ -11,7 +11,7 @@ MQTT 是物联网与边缘计算事实上的消息协议标准（OASIS 规范）
 需要 [MoonBit 工具链](https://www.moonbitlang.com/)（moon ≥ 0.1.2026xxxx）。
 
 ```bash
-moon add Duckweed/moon-mqtt@0.1.0
+moon add Duckweed/moon-mqtt@0.1.1
 ```
 
 也可以不安装、直接作为依赖源使用：
@@ -125,7 +125,8 @@ client/     高层客户端 API（native）          ✅
 - [x] `session/` 会话状态机（QoS2 exactly-once 握手、报文标识分配、在途持久会话骨架）
 - [x] `transport/` native 网络层（C FFI TCP socket，跨平台）
 - [x] `client/` 高层 API（connect / publish / subscribe / ping / disconnect）
-- [x] **mooncakes 发布（`Duckweed/moon-mqtt@0.1.0`）**
+- [x] **mooncakes 发布（`Duckweed/moon-mqtt@0.1.1`）**
+- [x] 测试：`moon test --target wasm-gc` 53/53 通过；`moon test --target native` 56/56 通过；0 警告
 
 ### `protocol/` 已实现
 
@@ -172,7 +173,7 @@ CI（GitHub Actions，Linux / Windows 双矩阵）覆盖**检查 + 构建 + 四�
 - **阻塞式 API**：`client/` 为阻塞式，适合 CLI / 边缘遥测上报等确定性场景；高并发长连接场景需要多线程或异步封装，当前未提供。
 - **publish/subscribe/ping 调用期间收到的入站 PUBLISH 会被丢弃**：阻塞单线程模型下，`publish` 等 PUBACK/PUBREC/PUBCOMP、`subscribe` 等 SUBACK、`ping` 等 PINGRESP 时，若 broker 恰好推来你订阅主题的入站 PUBLISH，当前代码会返回 `"expected XXX"` 错误并把该报文丢掉。需要边发布边接收订阅消息的场景，应改用专门的接收循环（后续版本提供）。
 - **读帧无超时**：`read_frame` 在 broker 不回包时会永久阻塞，调用方需自行控制应用层超时。
-- **`client/` 层无独立单测**：client 是 native + C FFI，无法在 wasm 后端直接实例化；其逻辑正确性由 `protocol/`（帧编解码）与 `session/`（QoS 状态机）的纯层测试（53 个）+ `examples/pubsub`、`examples/resume` 手动验证共同保障。client 层的 transport 抽象与可测性改进是后续版本的工程债。
+- **`client/` 层无独立单测**：client 是 native + C FFI，无法在 wasm 后端直接实例化；其逻辑正确性由 `protocol/`（帧编解码）与 `session/`（QoS 状态机）的纯层测试（wasm-gc 53 个 / native 56 个）+ `examples/pubsub`、`examples/resume` 手动验证共同保障。client 层的 transport 抽象与可测性改进是后续版本的工程债。
 
 ## 许可证
 

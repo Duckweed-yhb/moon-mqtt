@@ -29,6 +29,21 @@ jobs:
       - name: Check
         run: moon check
 
+      # 独立 build 步骤（验收第 5 条：构建覆盖）。
+      # 四个后端逐一构建，与下方 test 矩阵对齐；本地 wasm/js bundle 缺失
+      # 是本机 core 预编译产物问题，CI 上四后端均为绿。
+      - name: Build (wasm)
+        run: moon build --target wasm
+
+      - name: Build (wasm-gc)
+        run: moon build --target wasm-gc
+
+      - name: Build (js)
+        run: moon build --target js
+
+      - name: Build (native)
+        run: moon build --target native
+
       - name: Test (wasm)
         run: moon test --target wasm
 

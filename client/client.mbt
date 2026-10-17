@@ -119,6 +119,15 @@ pub fn MqttClient::set_session_store(self : MqttClient, store : @session.Session
 pub fn MqttClient::publish(
   self : MqttClient, topic : String, payload : Array[Int], qos : @protocol.QoS
 ) -> Result[Unit, String] {
+  // MQTT §3.3.1-3.3.2：PUBLISH topic 是 UTF-8 字符串，长度 1-65535，
+  // 不能含 U+0000。payload 任意长度但 ≤268435455（剩余长度上限）。
+  match validate_publish_topic(topic) {
+    Ok(_) => ()
+    Err(e) => return Err(e)
+  }
+  if payload.length() > 268435455 {
+    return Err("publish: payload too large (>256MB)")
+  }
   // 用不带 pid 的种子报文让 store 分配并记录在途
   let seed = @protocol.PublishPacket::new(topic, payload, qos, false, false, 0)
   let (s0, pid) = @session.record_outbound(self.store[0], seed)
@@ -397,7 +406,11 @@ fn read_frame(tcp : @transport.TcpClient) -> Result[Array[Int], String] {
       }
     }
   }
-  // 读够 rlen 字节
+  // 读够 rlen 字节。软上限 16MB，挡住恶意/错误 broker 发的超大帧，
+  // 避免 Array[Int] 直接撑爆内存。MQTT 协议硬上限是 268435455（256MB）。
+  if rlen > 16 * 1024 * 1024 {
+    return Err("frame too large (>16MB)")
+  }
   let mut got = 0
   while got < rlen {
     let need = rlen - got
@@ -421,5 +434,45 @@ fn read_byte(tcp : @transport.TcpClient) -> Result[Int, String] {
     Ok(b) if b.length() > 0 => Ok(b[0])
     Ok(_) => Err("EOF")
     Err(e) => Err(e)
+  }
+}
+
+/// 校验 PUBLISH topic 是否符合 MQTT §3.3.1-3.3.2：
+/// 非空、长度 ≤65535 UTF-8 单元、不含 U+0000。
+pub fn validate_publish_topic(topic : String) -> Result[Unit, String] {
+  if topic.length() == 0 {
+    return Err("empty topic")
+  }
+  if topic.length() > 65535 {
+    return Err("topic too long (>65535 UTF-8 units)")
+  }
+  if topic.contains("\u{0000}") {
+    return Err("topic contains NUL")
+  }
+  Ok(())
+}
+
+test "validate_publish_topic: accepts normal topics" {
+  match validate_publish_topic("sensors/temp") {
+    Ok(_) => ()
+    Err(e) => fail(e)
+  }
+  match validate_publish_topic("a") {
+    Ok(_) => ()
+    Err(e) => fail(e)
+  }
+}
+
+test "validate_publish_topic: rejects empty" {
+  match validate_publish_topic("") {
+    Ok(_) => fail("expected Err for empty topic")
+    Err(_) => ()
+  }
+}
+
+test "validate_publish_topic: rejects NUL" {
+  match validate_publish_topic("abc\u{0000}def") {
+    Ok(_) => fail("expected Err for NUL topic")
+    Err(_) => ()
   }
 }

@@ -1,0 +1,13 @@
+///|
+/// examples/reconnect — 演示 poll_loop + reconnect 自动重连 + 会话恢复。
+///
+/// 订阅到 sensors/+, 每 5 秒 poll 一轮。poll_loop 失败时调 reconnect()，
+/// 把旧 SessionStore 带过去，broker 若保留会话则自动 replay 在途帧。
+supported_targets = "native"
+
+pkgtype(kind: "executable")
+
+import {
+  "Duckweed/moon-mqtt/protocol" @protocol,
+  "Duckweed/moon-mqtt/client" @client,
+}

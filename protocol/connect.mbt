@@ -28,6 +28,45 @@ pub fn ConnectPacket::new(client_id : String) -> ConnectPacket {
   }
 }
 
+/// 设置 keep_alive（秒，0 = 不发 PINGREQ）。
+pub fn ConnectPacket::with_keep_alive(
+  self : ConnectPacket, secs : Int
+) -> ConnectPacket {
+  { ..self, keep_alive: secs }
+}
+
+/// 设置 clean_session。false = 让 broker 保留同名 client_id 的会话。
+pub fn ConnectPacket::with_clean_session(
+  self : ConnectPacket, v : Bool
+) -> ConnectPacket {
+  { ..self, clean_session: v }
+}
+
+/// 设置用户名密码（两者必须同时给或同时 None）。
+pub fn ConnectPacket::with_auth(
+  self : ConnectPacket, user : String, pass : Array[Int]
+) -> ConnectPacket {
+  { ..self, username: Some(user), password: Some(pass) }
+}
+
+/// 设置遗嘱（Will）：连接异常掉线时 broker 会向 will_topic 发 will_message。
+/// qos / retain 同 PUBLISH 语义。
+pub fn ConnectPacket::with_will(
+  self : ConnectPacket,
+  topic : String,
+  msg : Array[Int],
+  qos : QoS,
+  retain : Bool,
+) -> ConnectPacket {
+  {
+    ..self,
+    will_topic: Some(topic),
+    will_message: Some(msg),
+    will_qos: qos,
+    will_retain: retain,
+  }
+}
+
 /// 把 CONNECT 编码为完整报文（含固定头）。
 pub fn encode_connect(pkt : ConnectPacket) -> Array[Int] {
   // 可变头：协议名 + 级别 + 连接标志 + 保持连接

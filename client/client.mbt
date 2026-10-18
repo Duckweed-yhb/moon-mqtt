@@ -21,6 +21,9 @@ struct SubscriptionReg {
 /// MQTT 客户端。
 pub struct MqttClient {
   tcp : @transport.TcpClient
+  host : String
+  port : Int
+  opts : @protocol.ConnectPacket
   client_id : String
   keep_alive : Int
   store : Array[@session.SessionStore]
@@ -29,6 +32,8 @@ pub struct MqttClient {
   session_present : Array[Bool]
   /// 本地订阅注册表：poll() 收到 PUBLISH 时按 topic filter 匹配并派发。
   subs : Array[SubscriptionReg]
+  /// 上次发出 PINGREQ 至今的毫秒数（用于 poll_loop 自动心跳）。
+  last_ping_ms : Array[Int]
 }
 
 /// 用默认参数连接（keep_alive=60、clean_session=true、无认证）。
@@ -87,11 +92,15 @@ pub fn connect_opts(
   return Ok(
     {
       tcp,
+      host,
+      port,
+      opts: pkt,
       client_id: pkt.client_id,
       keep_alive: pkt.keep_alive,
       store: [@session.SessionStore::new()],
       session_present: [connack.session_present],
       subs: [],
+      last_ping_ms: [0],
     },
   )
 }
@@ -329,6 +338,84 @@ pub fn MqttClient::ping(self : MqttClient) -> Result[Unit, String] {
     Ok(_) => Err("expected PINGRESP")
     Err(e) => Err(e)
   }
+}
+
+/// 持续服务循环：连调 `poll_once(timeout_ms)` 共 `rounds` 轮。
+///
+/// 每轮内部自动心跳：累计等待时长达到 keep_alive 秒时，自动发一次 PINGREQ
+/// 并等 PINGRESP。keep_alive=0 表示不发心跳（CONNECT 时已声明）。
+///
+/// 用法：在主线程里 `client.poll_loop(1000, 1000)` 跑 1000 秒，每
+/// 秒 poll 一次；收到 PUBLISH 会在 subscribe_with_handler 注册的回调里
+/// 派发。任何读/写错误会立刻返回 Err，调用方据此决定是否 reconnect。
+pub fn MqttClient::poll_loop(
+  self : MqttClient, rounds : Int, timeout_ms : Int
+) -> Result[Unit, String] {
+  let keep_ms = self.keep_alive * 1000
+  let mut remaining = rounds
+  while remaining > 0 {
+    remaining = remaining - 1
+    // 到点先 ping（保证即使没入站数据也能保活）
+    if keep_ms > 0 && self.last_ping_ms[0] >= keep_ms {
+      match self.ping() {
+        Ok(_) => self.last_ping_ms[0] = 0
+        Err(e) => return Err(e)
+      }
+    }
+    match self.poll_once(timeout_ms) {
+      Ok(_) => self.last_ping_ms[0] = self.last_ping_ms[0] + timeout_ms
+      Err(e) => return Err(e)
+    }
+  }
+  Ok(())
+}
+
+/// 断线后重连：用原 host/port/opts 重新 CONNECT，把旧 store 带过去，
+/// 再依据新 CONNACK 的 session_present 决定是否 replay 在途帧。
+///
+/// 返回新连接。调用方应把旧 client 丢弃，用返回的新 client 继续。
+/// 典型用法：
+/// ```
+/// match client.poll_loop(...) {
+///   Ok(_) => ()
+///   Err(_) => {
+///     client = match client.reconnect() {
+///       Ok(c) => c
+///       Err(e) => panic("reconnect failed: " + e)
+///     }
+///   }
+/// }
+/// ```
+pub fn MqttClient::reconnect(self : MqttClient) -> Result[MqttClient, String] {
+  let old_store = self.store[0]
+  let old_subs = self.subs
+  let c = match connect_opts(self.host, self.port, self.opts) {
+    Ok(c) => c
+    Err(e) => return Err(e)
+  }
+  c.set_session_store(old_store)
+  // session_present=false 时 broker 已清空中转，本地 replay 无意义；
+  // true 时按协议必须重发在途 QoS1/2 PUBLISH。
+  if c.is_session_present() {
+    let frames = c.replay_frames()
+    for f in frames {
+      match c.tcp.write(f) {
+        Ok(_) => ()
+        Err(e) => {
+          c.tcp.close()
+          return Err("replay write failed: " + e)
+        }
+      }
+    }
+  }
+  // 把本地订阅表搬过去（broker 端 clean_session=false 时通常还在，
+  // 但 clean_session=true 时要重发 SUBSCRIBE）。这里照搬本地注册表，
+  // 由调用方决定是否重发 SUBSCRIBE；默认不重发，仅保留回调用于
+  // 后续 PUBLISH 派发。
+  for reg in old_subs {
+    c.subs.push(reg)
+  }
+  Ok(c)
 }
 
 /// 发送 DISCONNECT 并关闭连接。写失败时也强制关闭 socket，避免 fd 泄漏。

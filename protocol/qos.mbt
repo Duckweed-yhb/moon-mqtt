@@ -35,6 +35,13 @@ pub fn qos_from_int(v : Int) -> Option[QoS] {
   }
 }
 
+/// 以下常量函数用于 executable 包（examples 等）在 native 后端
+/// 跨包引用 enum variant，避开 "Cannot create values of the read-only type"
+/// 的工具链限制。
+pub fn qos0() -> QoS { QoS::AtMostOnce }
+pub fn qos1() -> QoS { QoS::AtLeastOnce }
+pub fn qos2() -> QoS { QoS::ExactlyOnce }
+
 test "qos_value" {
   assert_eq(qos_value(QoS::AtMostOnce), 0)
   assert_eq(qos_value(QoS::AtLeastOnce), 1)

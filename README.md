@@ -11,7 +11,7 @@ MQTT 是物联网与边缘计算事实上的消息协议标准（OASIS 规范）
 需要 [MoonBit 工具链](https://www.moonbitlang.com/)（moon ≥ 0.1.2026xxxx）。
 
 ```bash
-moon add Duckweed/moon-mqtt@0.1.1
+moon add Duckweed/moon-mqtt@0.1.2
 ```
 
 也可以不安装、直接作为依赖源使用：
@@ -52,17 +52,36 @@ match @protocol.decode_publish(bytes) { ... }
 
 ### 连接真实 broker（`client/` 高层 API，native）
 
-`client/` 提供阻塞式 `MqttClient`（connect / publish / subscribe / ping / disconnect），适合 CLI / 边缘遥测上报等确定性场景。需要连到真实 MQTT broker 才能跑通：
+`client/` 提供阻塞式 `MqttClient`（connect / publish / subscribe / poll_loop / reconnect / disconnect），适合 CLI / 边缘遥测上报等确定性场景。需要连到真实 MQTT broker 才能跑通：
 
 ```moonbit
-let client = @client.connect("broker.hivemq.com", 1883, "demo-client")?
-client.publish("sensors/temp", [0x32, 0x33], @protocol.QoS.AtLeastOnce)?
-client.subscribe("sensors/#", @protocol.QoS.AtLeastOnce)?
-client.ping()?
+// 自定义 CONNECT（带认证 + 遗嘱 + 持久会话）
+let opts = @protocol.ConnectPacket::new("demo-client")
+  .with_keep_alive(30)
+  .with_clean_session(false)
+  .with_auth("user", [0x70, 0x61, 0x73, 0x73])   // "pass"
+  .with_will("status", "offline".to_bytes(), @protocol.qos1(), false)
+
+let client = @client.connect_opts("broker.hivemq.com", 1883, opts)?
+
+// 订阅并注册回调：收到 PUBLISH 时自动派发
+client.subscribe_with_handler("sensors/#", @protocol.qos1(), fn(topic, payload) {
+  println("recv " + topic)
+})?
+
+// 主循环：每 1 秒 poll 一次，到 keep_alive 自动发 PINGREQ
+// 失败返回 Err 时调 reconnect() 自动重连 + 会话恢复
+match client.poll_loop(600, 1000) {
+  Ok(_) => ()
+  Err(_) => {
+    let client = client.reconnect()?
+    println("reconnected, session_present=" + client.is_session_present().to_string())
+  }
+}
 client.disconnect()?
 ```
 
-> `?` 为 Result 传播（出错即返回 `Err`）。`@client` / `@protocol` 为依赖包子包模块前缀。
+> `?` 为 Result 传播（出错即返回 `Err`）。`@client` / `@protocol` 为依赖包子包模块前缀。`qos1()` / `qos0()` / `qos2()` 是跨包构造 QoS 枚举的 helper（绕开 native 后端 executable 包的 enum 构造限制）。
 
 ## 真实用例：物联网边缘遥测上报
 
@@ -123,9 +142,9 @@ client/     高层客户端 API（native）          ✅
 - [x] 项目骨架 + CI
 - [x] `protocol/` MQTT 3.1.1 报文编解码
 - [x] `session/` 会话状态机（QoS2 exactly-once 握手、报文标识分配、在途持久会话骨架）
-- [x] `transport/` native 网络层（C FFI TCP socket，跨平台）
-- [x] `client/` 高层 API（connect / publish / subscribe / ping / disconnect）
-- [x] **mooncakes 发布（`Duckweed/moon-mqtt@0.1.1`）**
+- [x] `transport/` native 网络层（C FFI TCP socket，跨平台，带 wait_read 超时）
+- [x] `client/` 高层 API（connect / publish / subscribe / poll_loop 自动心跳 / reconnect 自动重连 / disconnect）
+- [x] **mooncakes 发布（`Duckweed/moon-mqtt@0.1.2`）**
 - [x] 测试：`moon test --target wasm-gc` 53/53 通过；`moon test --target native` 56/56 通过；0 警告
 
 ### `protocol/` 已实现
@@ -149,8 +168,13 @@ client/     高层客户端 API（native）          ✅
 
 - `connect` / `connect_opts`（自定义 CONNECT，校验 CONNACK 返回码）
 - `publish`（QoS0 直发 / QoS1 等 PUBACK / QoS2 三段握手）
-- `subscribe` / `ping` / `disconnect` / `read_packet`（读帧：固定头 + 剩余长度变长）
+- `subscribe` / `subscribe_with_handler`（注册 PUBLISH 回调，poll 时按 topic 派发）
+- `poll_once(timeout_ms)`：阻塞读一帧并派发，带超时（避免 TCP 死了永久阻塞）
+- `poll_loop(rounds, timeout_ms)`：连调 poll_once，到 keep_alive 自动发 PINGREQ
+- `reconnect()`：重连 CONNECT + 带旧 SessionStore + session_present=true 时自动 replay 在途帧
+- `ping` / `disconnect` / `read_packet`
 - 报文标识分配器（1..65535 会话内不重复）
+- 入参校验：PUBLISH topic 非空 / ≤65535 / 无 NUL；帧大小软上限 16MB
 
 ## 构建与测试
 
@@ -168,11 +192,10 @@ CI（GitHub Actions，Linux / Windows 双矩阵）覆盖**检查 + 构建 + 四�
 
 ## 已知限制（如实说明）
 
-- **会话恢复的实际形态**：`client/` 已接入 `SessionStore`——QoS1/2 PUBLISH 在未完成握手期间持续记录，`MqttClient::replay_frames()` 返回待重放字节序列；`examples/resume` 给出完整时间线。但**会话快照的外部持久化**（写到文件 / 重启后 `SessionStore::from_parts` 还原）与**重连后依据 CONNACK `session_present` 自动 replay + 重订阅**仍未由 client 自动完成，需要调用方在应用层接管：收到断开错误后自行重连、调 `replay_frames()` 逐帧 write。这是下一季度的主线。
+- **会话快照的外部持久化**：`SessionStore` 当前在内存里（`Array[Int]` workaround），进程重启后不会从磁盘还原。`reconnect()` 能在同进程内重连 + replay，但跨进程重启场景需要调用方自己把 store 序列化到文件，这是下一季度的主线。
 - **`transport/` 与 `client/` 仅支持 native 后端**：它们依赖 C FFI socket，`extern "C"` 在 wasm 系列后端不存在。`protocol/` 与 `session/` 不受此限（四后端可编译可测）。
 - **阻塞式 API**：`client/` 为阻塞式，适合 CLI / 边缘遥测上报等确定性场景；高并发长连接场景需要多线程或异步封装，当前未提供。
-- **publish/subscribe/ping 调用期间收到的入站 PUBLISH 会被丢弃**：阻塞单线程模型下，`publish` 等 PUBACK/PUBREC/PUBCOMP、`subscribe` 等 SUBACK、`ping` 等 PINGRESP 时，若 broker 恰好推来你订阅主题的入站 PUBLISH，当前代码会返回 `"expected XXX"` 错误并把该报文丢掉。需要边发布边接收订阅消息的场景，应改用专门的接收循环（后续版本提供）。
-- **读帧无超时**：`read_frame` 在 broker 不回包时会永久阻塞，调用方需自行控制应用层超时。
+- **publish/subscribe/ping 同步握手期间的入站 PUBLISH**：`publish` 等 PUBACK/PUBREC/PUBCOMP、`subscribe` 等 SUBACK 时，若 broker 恰好推来你订阅主题的入站 PUBLISH，当前代码会返回 `"expected XXX"` 错误并把该报文丢掉。边发布边接收的场景应改用 `poll_loop` 主循环 + `subscribe_with_handler`。
 - **`client/` 层无独立单测**：client 是 native + C FFI，无法在 wasm 后端直接实例化；其逻辑正确性由 `protocol/`（帧编解码）与 `session/`（QoS 状态机）的纯层测试（wasm-gc 53 个 / native 56 个）+ `examples/pubsub`、`examples/resume` 手动验证共同保障。client 层的 transport 抽象与可测性改进是后续版本的工程债。
 
 ## 许可证

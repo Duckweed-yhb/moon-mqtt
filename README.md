@@ -145,7 +145,7 @@ client/     高层客户端 API（native）          ✅
 - [x] `transport/` native 网络层（C FFI TCP socket，跨平台，带 wait_read 超时）
 - [x] `client/` 高层 API（connect / publish / subscribe / poll_loop 自动心跳 / reconnect 自动重连 / disconnect）
 - [x] **mooncakes 发布（`Duckweed/moon-mqtt@0.1.2`）**
-- [x] 测试：`moon test --target wasm-gc` 58/58 通过；`moon test --target native` 56/56 通过；0 警告
+- [x] 测试：`moon test --target wasm-gc` 58/58 通过；`moon test --target native` 61/61 通过；0 警告
 
 ### `protocol/` 已实现
 
@@ -190,13 +190,39 @@ moon run examples/resume       # QoS2 中断重连 / 会话恢复时间线
 
 CI（GitHub Actions，Linux / Windows 双矩阵）覆盖**检查 + 构建 + 四后端测试 + 示例运行**。
 
+## 手动验证（连真 broker）
+
+examples/pubsub 和 resume 是纯计算不连 TCP。要验证 client 能真连 broker，本地起 mosquitto 后跑一段最小 MoonBit 代码：
+
+```bash
+# 1. 起本地 broker
+mosquitto -p 1883 -v
+
+# 2. 另开终端，订阅
+mosquitto_sub -h 127.0.0.1 -t 'sensors/#' -v
+
+# 3. 跑最小 MoonBit 程序（connect → publish → subscribe → ping → disconnect）
+#    代码见上方"连接真实 broker"章节
+```
+
+预期：订阅终端能看到 `sensors/temp` 收到的消息，程序退出码 0。
+
+## AI 工具使用说明
+
+本项目开发过程中使用了 AI 编程工具辅助，但**目标、技术路径、质量边界和开源合规由参赛者本人把控**：
+
+- **AI 辅助了什么**：协议报文编解码的样板代码、单测用例的生成、README 文档的初稿润色。
+- **人把控了什么**：项目选题（MQTT 3.1.1 客户端库）、分层架构（protocol/session/transport/client）、QoS 状态机的边界条件、C FFI 边界设计、已知限制的如实声明、与 mooncakes 现有项目的查重。
+- **AI 生成的代码怎么验证**：每条 AI 生成的单测都由人对照 MQTT 3.1.1 规范（OASIS 标准）核对过断言；协议编解码有往返测试（encode → decode → 字段比对）；CI 四后端测试全绿才合并。
+- **不做什么**：不照搬其他开源项目的代码（API 设计参考 MQTT.js / Paho C，但实现是 MoonBit 重写）；不把 AI 生成的测试数据当真理；不把"声明与实际不符"的话写进 README。
+
 ## 已知限制（如实说明）
 
 - **会话快照的落盘文件 I/O**：`SessionStore` 已提供字节级快照原语 `snapshot()` / `restore()`（`session/persistent.mbt`），调用方拿到 `(next_id, Array[InflightWire])` 即可自行写盘、进程重启后 `restore()` 重建会话；`reconnect()` 在同进程内重连 + replay。库本身不做文件读写（native 层文件 I/O 留待后续），跨进程重启由调用方 3 行胶水代码完成。
 - **`transport/` 与 `client/` 仅支持 native 后端**：它们依赖 C FFI socket，`extern "C"` 在 wasm 系列后端不存在。`protocol/` 与 `session/` 不受此限（四后端可编译可测）。
 - **阻塞式 API**：`client/` 为阻塞式，适合 CLI / 边缘遥测上报等确定性场景；高并发长连接场景需要多线程或异步封装，当前未提供。
 - **publish/subscribe/ping 同步握手期间的入站 PUBLISH**：`publish` 等 PUBACK/PUBREC/PUBCOMP、`subscribe` 等 SUBACK 时，若 broker 恰好推来你订阅主题的入站 PUBLISH，当前代码会返回 `"expected XXX"` 错误并把该报文丢掉。边发布边接收的场景应改用 `poll_loop` 主循环 + `subscribe_with_handler`。
-- **`client/` 层无独立单测**：client 是 native + C FFI，无法在 wasm 后端直接实例化；其逻辑正确性由 `protocol/`（帧编解码）与 `session/`（QoS 状态机）的纯层测试（wasm-gc 53 个 / native 56 个）+ `examples/pubsub`、`examples/resume` 手动验证共同保障。client 层的 transport 抽象与可测性改进是后续版本的工程债。
+- **`client/` 层无独立单测**：client 是 native + C FFI，无法在 wasm 后端直接实例化；其逻辑正确性由 `protocol/`（帧编解码）与 `session/`（QoS 状态机）的纯层测试（wasm-gc 58 个 / native 61 个）+ `examples/pubsub`、`examples/resume` 手动验证共同保障。client 层的 transport 抽象与可测性改进是后续版本的工程债。
 
 ## 许可证
 

@@ -124,7 +124,7 @@ README 顶部写"3.1.1 全量"，此处给出**实际支持的字段清单**，�
 
 ## 设计
 
-核心差异化在于**协议状态机与 QoS 语义的正确性**——不是脚本，而是有机制的基础设施。
+核心差异化在于**协议状态机与 QoS 语义的正确性**——不是脚本，而是有机制的基础设施。详见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)。
 
 ```
 protocol/   报文编解码（纯计算，四后端可测）   ✅
@@ -145,7 +145,7 @@ client/     高层客户端 API（native）          ✅
 - [x] `transport/` native 网络层（C FFI TCP socket，跨平台，带 wait_read 超时）
 - [x] `client/` 高层 API（connect / publish / subscribe / poll_loop 自动心跳 / reconnect 自动重连 / disconnect）
 - [x] **mooncakes 发布（`Duckweed/moon-mqtt@0.1.2`）**
-- [x] 测试：`moon test --target wasm-gc` 53/53 通过；`moon test --target native` 56/56 通过；0 警告
+- [x] 测试：`moon test --target wasm-gc` 58/58 通过；`moon test --target native` 56/56 通过；0 警告
 
 ### `protocol/` 已实现
 
@@ -192,7 +192,7 @@ CI（GitHub Actions，Linux / Windows 双矩阵）覆盖**检查 + 构建 + 四�
 
 ## 已知限制（如实说明）
 
-- **会话快照的外部持久化**：`SessionStore` 当前在内存里（`Array[Int]` workaround），进程重启后不会从磁盘还原。`reconnect()` 能在同进程内重连 + replay，但跨进程重启场景需要调用方自己把 store 序列化到文件，这是下一季度的主线。
+- **会话快照的落盘文件 I/O**：`SessionStore` 已提供字节级快照原语 `snapshot()` / `restore()`（`session/persistent.mbt`），调用方拿到 `(next_id, Array[InflightWire])` 即可自行写盘、进程重启后 `restore()` 重建会话；`reconnect()` 在同进程内重连 + replay。库本身不做文件读写（native 层文件 I/O 留待后续），跨进程重启由调用方 3 行胶水代码完成。
 - **`transport/` 与 `client/` 仅支持 native 后端**：它们依赖 C FFI socket，`extern "C"` 在 wasm 系列后端不存在。`protocol/` 与 `session/` 不受此限（四后端可编译可测）。
 - **阻塞式 API**：`client/` 为阻塞式，适合 CLI / 边缘遥测上报等确定性场景；高并发长连接场景需要多线程或异步封装，当前未提供。
 - **publish/subscribe/ping 同步握手期间的入站 PUBLISH**：`publish` 等 PUBACK/PUBREC/PUBCOMP、`subscribe` 等 SUBACK 时，若 broker 恰好推来你订阅主题的入站 PUBLISH，当前代码会返回 `"expected XXX"` 错误并把该报文丢掉。边发布边接收的场景应改用 `poll_loop` 主循环 + `subscribe_with_handler`。

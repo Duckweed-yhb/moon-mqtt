@@ -60,3 +60,7 @@ jobs:
       # 报文编解码往返，不依赖真实 broker。native 下运行验证。
       - name: Run example (pubsub)
         run: moon run examples/pubsub
+
+      # examples/resume：QoS2 中断重连时间线，纯计算不连 TCP。
+      - name: Run example (resume)
+        run: moon run examples/resume

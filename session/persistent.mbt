@@ -216,6 +216,78 @@ pub fn reset(_store : SessionStore) -> SessionStore {
   return { inflight: [], next_id: 1 }
 }
 
+// ---------- 可落盘快照（"保存/恢复"闭环） ----------
+//
+// `from_parts` 只能从同进程的 `InFlightEntry` 结构重建；跨进程重启时
+// 调用方需要把会话序列化成自己能写盘的字节。下面给出一个自描述的
+// 字节快照格式：每条在途 = 阶段枚举值 + 首次发送时的完整 PUBLISH 报文
+// 字节。恢复时 `decode_publish` 还原报文，`SendStage::from_int` 还原阶段。
+// 本模块不碰文件 I/O（那是 native 层的事），只把状态变成可序列化的扁平结构。
+
+/// 阶段枚举 → 整数（落盘用，稳定编码，勿改号）。
+pub fn SendStage::to_int(s : SendStage) -> Int {
+  match s {
+    SendStage::WaitingPuback => 0
+    SendStage::WaitPubrec => 1
+    SendStage::WaitPubcomp => 2
+  }
+}
+
+/// 整数 → 阶段枚举；未知编号报错（坏盘/被篡改数据）。
+pub fn SendStage::from_int(i : Int) -> Result[SendStage, String] {
+  match i {
+    0 => Ok(SendStage::WaitingPuback)
+    1 => Ok(SendStage::WaitPubrec)
+    2 => Ok(SendStage::WaitPubcomp)
+    _ => Err("unknown send stage code: " + i.to_string())
+  }
+}
+
+/// 一条可落盘的在途快照：`stage` 是阶段枚举值（见 `SendStage::to_int`），
+/// `wire` 是首次发送时的完整 PUBLISH 报文字节（dup=false）。
+pub struct InflightWire {
+  stage : Int
+  wire : Array[Int]
+}
+
+pub fn InflightWire::new(stage : Int, wire : Array[Int]) -> InflightWire {
+  return { stage, wire }
+}
+
+/// 导出可落盘快照：返回 (next_id, 在途条目)。调用方把这两个值写进文件，
+/// 下次进程启动后用 `SessionStore::restore` 重建。
+pub fn SessionStore::snapshot(s : SessionStore) -> (Int, Array[InflightWire]) {
+  let out : Array[InflightWire] = []
+  for e in s.inflight {
+    out.push({ stage: e.stage.to_int(), wire: @protocol.encode_publish(e.publish) })
+  }
+  return (s.next_id, out)
+}
+
+/// 从落盘快照恢复会话。逐条 `decode_publish`，任何一条字节坏了都带索引报错，
+/// 避免"半恢复"导致 packet_id 错乱。
+pub fn SessionStore::restore(
+  next_id : Int, items : Array[InflightWire],
+) -> Result[SessionStore, String] {
+  let entries : Array[InFlightEntry] = []
+  let mut i = 0
+  for it in items {
+    match @protocol.decode_publish(it.wire) {
+      Ok(pkt) => {
+        match SendStage::from_int(it.stage) {
+          Ok(stage) => entries.push({ packet_id: pkt.packet_id, publish: pkt, stage })
+          Err(e) => return Err("restore item " + i.to_string() + ": " + e)
+        }
+      }
+      Err(e) => return Err(
+        "restore item " + i.to_string() + ": bad publish bytes: " + e,
+      )
+    }
+    i = i + 1
+  }
+  return Ok(SessionStore::from_parts(next_id, entries))
+}
+
 // ---------- 测试 ----------
 
 // 注意：跨包不能直接构造 @protocol.QoS::Xxx（read-only type），
@@ -359,5 +431,77 @@ test "next id skips inflight occupied" {
   let s3 = on_puback(s2, pid1)
   match record_outbound(s3, mk_publish(1)) {
     (_s4, pid3) => assert_eq(pid3, 3)
+  }
+}
+
+// ---------- snapshot / restore（字节级保存/恢复闭环） ----------
+
+test "snapshot restore replays identically" {
+  let s0 = SessionStore::new()
+  let (s1, _) = record_outbound(s0, mk_publish(1))
+  // 让第二条走到 WaitPubcomp（PUBREC 后），混合两种阶段
+  let (s2, pid2) = record_outbound(s1, mk_publish(2))
+  let (s3, _) = on_pubrec(s2, pid2)
+  // 落盘 → 读盘
+  let (next_id, items) = s3.snapshot()
+  match SessionStore::restore(next_id, items) {
+    Ok(restored) => {
+      assert_eq(restored.inflight_count(), s3.inflight_count())
+      // 重放字节与原存储逐字节一致
+      assert_eq(replay(restored), replay(s3))
+      assert_eq(restored.next_id(), s3.next_id())
+    }
+    Err(e) => fail(e)
+  }
+}
+
+test "restore keeps id cursor and continues allocation" {
+  let s0 = SessionStore::new()
+  let (s1, _) = record_outbound(s0, mk_publish(1))
+  let (next_id, items) = s1.snapshot()
+  match SessionStore::restore(next_id, items) {
+    Ok(restored) => {
+      // 在途 id=1，恢复后新 publish 应拿 id=2（不与在途冲突）
+      let (s2, pid) = record_outbound(restored, mk_publish(1))
+      assert_eq(pid, 2)
+      assert_eq(s2.inflight_count(), 2)
+    }
+    Err(e) => fail(e)
+  }
+}
+
+test "restore rejects corrupt publish bytes" {
+  let bad = [InflightWire::new(0, [0x30, 0x01, 0xFF])] // 截断的坏帧
+  match SessionStore::restore(1, bad) {
+    Ok(_) => fail("expected Err for corrupt wire bytes")
+    Err(e) => assert_true(e.contains("bad publish bytes"))
+  }
+}
+
+test "restore rejects unknown stage code" {
+  let good = match record_outbound(SessionStore::new(), mk_publish(1)) {
+    (s, _) => {
+      let (_, items) = s.snapshot()
+      items[0]
+    }
+  }
+  let bad_stage = [InflightWire::new(99, good.wire)]
+  match SessionStore::restore(1, bad_stage) {
+    Ok(_) => fail("expected Err for unknown stage code")
+    Err(e) => assert_true(e.contains("send stage code"))
+  }
+}
+
+test "stage to_int from_int roundtrip" {
+  assert_eq(SendStage::WaitingPuback.to_int(), 0)
+  assert_eq(SendStage::WaitPubrec.to_int(), 1)
+  assert_eq(SendStage::WaitPubcomp.to_int(), 2)
+  match SendStage::from_int(2) {
+    Ok(s) => assert_eq(s, SendStage::WaitPubcomp)
+    Err(e) => fail(e)
+  }
+  match SendStage::from_int(7) {
+    Ok(_) => fail("expected Err")
+    Err(_) => ()
   }
 }

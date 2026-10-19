@@ -4,23 +4,43 @@
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-10-18
+
 ### Added
 
-- `session/` `SessionStore::record_outbound` 现在按 MQTT §2.3.1 跳过 inflight 中已占用的 packet_id（原简单递增循环在非阻塞/重连场景会复用未完成握手的 id）；新增单测 `"next id skips inflight occupied"`（总测试 52 → 53）。
+- `client/` 新增 `poll_loop(rounds, timeout_ms)`：连调 `poll_once`，累计等待时长到 `keep_alive` 自动发 PINGREQ，用户无需手动调 `ping()`。
+- `client/` 新增 `reconnect()`：重连 CONNECT + 带旧 `SessionStore` + `session_present=true` 时自动 replay 在途 QoS1/2 帧。
+- `client/` `MqttClient` 保存 host/port/opts，新增 `last_ping_ms` 字段用于自动心跳累计。
+- `protocol/ConnectPacket` 新增链式 builder：`with_keep_alive` / `with_clean_session` / `with_auth` / `with_will`。
+- `protocol/QoS` 新增 `qos0()` / `qos1()` / `qos2()` helper，绕开 native 后端 executable 包跨包构造 enum variant 的限制。
 
 ### Changed
 
-- **措辞修正：移除"异步"宣传语**。README 顶部、`moon.mod` description 与 keywords 原称"异步客户端库 / async"，但 `client/` 实际为阻塞式（异步封装为 11-1 月季度维护路线 Q1）。统一改为"当前阻塞式，异步为后续路线"，避免"声明与实际不符"（MoonProof 当年被驳的同类问题）。
-- README「已知限制」新增三条如实说明：①publish/subscribe/ping 调用期间收到的入站 PUBLISH 会被丢弃（阻塞单线程结构性问题）；②read_frame 无超时；③`client/` 层无独立单测（native + C FFI 限制），由 protocol/session 纯层测试 + examples/pubsub 保障。
+- 版本 0.1.1 → 0.1.2，`moon.mod` description 同步新特性。
+- README 快速上手示例改成 `poll_loop + reconnect + with_will` 链式调用。
+- README 已知限制删掉已解决的两条：读帧无超时、重连需应用层接管。
 
-- `session/` 新增持久会话在途存储纯计算骨架 `SessionStore`（clean_session=false 断线续传的第一步）：记录出站 QoS1/2 PUBLISH 的在途状态（`SendStage`: WaitingPuback/WaitPubrec/WaitPubcomp），收到 PUBACK/PUBREC/PUBCOMP 推进状态，断线重连时 `replay()` 按发送序产出 DUP=1 的 PUBLISH 与待重发的 PUBREL；`from_parts`/`inflight_entries` 支持落盘后恢复。四后端可测，共新增 8 个单测。配套在 `protocol/` 新增 `PublishPacket::with_packet_id` / `with_dup` 不可变副本辅助方法。
-- 新增 `examples/pubsub` 可运行示例：用 `protocol` 层做 PUBLISH 编解码往返，不依赖真实 broker，本地即可运行（验收"至少一个可运行示例"）。CI 新增 `moon run examples/pubsub` 步骤。
+## [0.1.1] - 2026-10-17
+
+### Added
+
+- `client/` `poll_once(timeout_ms)`：阻塞读一帧并派发 PUBLISH 到注册回调，带超时（`wait_read`）。
+- `client/` `subscribe_with_handler`：注册 PUBLISH 回调，poll 时按 topic filter 匹配派发。
+- `client/` 入参校验：`validate_publish_topic`（非空 / ≤65535 / 无 NUL）；帧大小软上限 16MB。
+- `session/` `SessionStore` 字节级可落盘快照闭环：`snapshot()` 导出 `(next_id, Array[InflightWire])`，`restore()` 还原；新增 5 个单测（wasm-gc 53 → 58）。
+- `session/` `record_outbound` 按 MQTT §2.3.1 跳过 inflight 中已占用的 packet_id。
+
+### Fixed
+
+- `transport/transport.mbt:90` 弃用警告：`@string.from_iter` → `String::from_array`。
+- socket fd 在错误路径泄漏 + partial write 处理。
+- native 后端编译错（CI 红）。
 
 ### Changed
 
-- `transport/`：移除 `@string.from_iter` 弃用调用，改用 `@string.from_array(chars.exact_view())`，构建 0 警告。
-- README：补「安装方式」与「快速上手/可运行示例」章节，勾选 mooncakes 发布状态。
-- README：新增「真实用例：物联网边缘遥测上报」（回应"无实用价值"评审教训）、「已实现的 CONNECT 字段清单」（如实声明支持范围）、「已知限制」（如实说明持久会话恢复尚未实现、native-only、阻塞式）。
+- 全仓库移除"MQTT 5.0"声明，统一为"3.1.1 全量；5.0 为后续路线"。
+- 移除"异步客户端"宣传语，统一为"阻塞式"。
+- CI 在 check 之后加四后端 `moon build` 矩阵。
 
 ## [0.1.0] - 2026-10-15
 

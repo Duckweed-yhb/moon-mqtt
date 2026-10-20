@@ -4,6 +4,23 @@
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-20
+
+### Added
+
+- `core/` 新包：`ClientCore` 连接状态机（纯计算，四后端可测），`start()` 生成 CONNECT 帧字节，`feed(bytes)` 返回 `(Array[CoreEvent], Array[Int] 出站字节)`。
+- `core/` 自动处理 QoS1/2 入站握手：收到 QoS1 PUBLISH 自动回 PUBACK，QoS2 PUBLISH 自动回 PUBREC，收到 PUBREL 自动回 PUBCOMP；`SessionStore` 接入 `ClientCore` 字段，`on_puback/on_pubrec/on_pubcomp` 推进在途状态；新增 `with_session(opts, store)` 构造器供断线重连恢复。
+- `examples/ws-spike/`：端到端打通 MQTT over WebSocket（js 后端 + Node 22 内置 WebSocket），连公共 EMQX broker `wss://broker.emqx.io:8084/mqtt`，收 CONNACK → 自动 SUBSCRIBE → 收 SUBACK → 渲染 PUBLISH topic + payload hex。
+- `core/ClientCore` 断线重连：`on_transport_close()` 切 Disconnected 状态（SessionStore 保留），`reconnect_bytes()` 重置状态、清 framer 残留缓冲、重新编码 CONNECT；`Framer::reset()` 清半包字节。
+- `examples/ws-spike/` JS 胶水层：WebSocket close 事件后延迟 1s 自动重连（最多 3 次），重连后自动重发 CONNECT + SUBSCRIBE。
+- `core/` 新增 8 个单测（wasm-gc 66 → 74，native 69 → 77）。
+
+### Changed
+
+- 版本 0.1.2 → 0.2.0。
+- README 新增"浏览器 / Node WebSocket 连接"章节，补 B 方案架构说明与端到端实测输出。
+- 架构图补 `core/` 层；已知限制更新为"transport/ client/ 仅 native，core/ 四后端可测，浏览器场景经 WebSocket 胶水层已验证"。
+
 ## [0.1.2] - 2026-10-18
 
 ### Added

@@ -196,6 +196,29 @@ pub fn ClientCore::disconnect(self : ClientCore) -> Array[Int] {
   return @protocol.encode_disconnect()
 }
 
+/// 通知胶水层 transport 已断开（对端关闭 / 网络异常）：
+/// - 状态切到 Disconnected；
+/// - 清空在途 PINGREQ 计数（不会再有 PINGRESP 回来）；
+/// - **保留 SessionStore**：in-flight QoS1/2 PUBLISH 待重连后继续推进，
+///   不新建空 store。
+pub fn ClientCore::on_transport_close(self : ClientCore) -> Unit {
+  self.state = CoreState::Disconnected
+  self.pending_pings = 0
+}
+
+/// 重连时由胶水层调用：
+/// - 复用同一 ConnectPacket 重新编码 CONNECT（与首次 start() 字节一致）；
+/// - 状态切回 Connecting（等新 CONNACK）；
+/// - 清空 framer 残留缓冲（旧连接的半包字节不能带到新连接）；
+/// - 清空在途 PINGREQ 计数；
+/// - **SessionStore 保留**：in-flight QoS1/2 重连后由后续 PUBACK/PUBREC/PUBCOMP 继续推进。
+pub fn ClientCore::reconnect_bytes(self : ClientCore) -> Array[Int] {
+  self.state = CoreState::Connecting
+  self.pending_pings = 0
+  self.framer.reset()
+  return @protocol.encode_connect(self.opts)
+}
+
 /// 构造一个已断开状态的 ClientCore（供断线重连用，SessionStore 保留供重放）。
 pub fn ClientCore::disconnected(opts : @protocol.ConnectPacket) -> ClientCore {
   return {

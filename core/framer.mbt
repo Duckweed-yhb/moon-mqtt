@@ -29,6 +29,11 @@ pub fn Framer::len(self : Framer) -> Int {
   return self.buf.length()
 }
 
+/// 清空残留缓冲（断线重连时调用：旧连接的半包字节不能带到新连接）。
+pub fn Framer::reset(self : Framer) -> Unit {
+  self.buf.clear()
+}
+
 /// 把新字节追加到缓冲，循环尝试切出完整帧，返回完整帧列表。
 pub fn Framer::feed(self : Framer, bytes : Array[Int]) -> Array[Array[Int]] {
   // 追加新字节（Array 是引用语义，push 直接作用于底层数组）

@@ -11,7 +11,7 @@ MQTT 是物联网与边缘计算事实上的消息协议标准（OASIS 规范）
 需要 [MoonBit 工具链](https://www.moonbitlang.com/)（moon ≥ 0.1.2026xxxx）。
 
 ```bash
-moon add Duckweed/moon-mqtt@0.1.2
+moon add Duckweed/moon-mqtt@0.2.0
 ```
 
 也可以不安装、直接作为依赖源使用：
@@ -183,10 +183,10 @@ client/     高层客户端 API（native）          ✅
 - [x] `session/` 会话状态机（QoS2 exactly-once 握手、报文标识分配、在途持久会话骨架）
 - [x] `transport/` native 网络层（C FFI TCP socket，跨平台，带 wait_read 超时）
 - [x] `client/` 高层 API（connect / publish / subscribe / poll_loop 自动心跳 / reconnect 自动重连 / disconnect）
-- [x] **mooncakes 发布（`Duckweed/moon-mqtt@0.1.2`）**
+- [x] **mooncakes 发布（`Duckweed/moon-mqtt@0.2.0`）**
 - [x] **`core/` ClientCore 连接状态机（纯计算，四后端可测）**
 - [x] **浏览器 / Node WebSocket 端到端打通（`examples/ws-spike/`，连公共 EMQX broker 收 CONNACK）**
-- [x] 测试：`moon test --target wasm-gc` 72/72 通过；`moon test --target native` 75/75 通过；0 警告
+- [x] 测试：`moon test --target wasm-gc` 74/74 通过；`moon test --target native` 77/77 通过；0 警告
 
 ### `protocol/` 已实现
 
@@ -263,7 +263,7 @@ mosquitto_sub -h 127.0.0.1 -t 'sensors/#' -v
 - **`transport/` 与 `client/` 仅支持 native 后端**：它们依赖 C FFI socket，`extern "C"` 在 wasm 系列后端不存在。`protocol/`、`session/`、`core/` 不受此限（四后端可编译可测）。浏览器 / Node 场景通过 WebSocket 胶水层接入：`examples/ws-spike/` 已端到端验证 moon-bit js 后端连 `wss://broker.emqx.io:8084/mqtt` 并收到 CONNACK（见上方"浏览器 / Node WebSocket 连接"章节），但正式的浏览器 client 封装（自动重连、订阅、消息回调、QoS 握手）尚未提供。
 - **阻塞式 API**：`client/` 为阻塞式，适合 CLI / 边缘遥测上报等确定性场景；高并发长连接场景需要多线程或异步封装，当前未提供。
 - **publish/subscribe/ping 同步握手期间的入站 PUBLISH**：`publish` 等 PUBACK/PUBREC/PUBCOMP、`subscribe` 等 SUBACK 时，若 broker 恰好推来你订阅主题的入站 PUBLISH，当前代码会返回 `"expected XXX"` 错误并把该报文丢掉。边发布边接收的场景应改用 `poll_loop` 主循环 + `subscribe_with_handler`。
-- **`client/` 层无独立单测**：client 是 native + C FFI，无法在 wasm 后端直接实例化；其逻辑正确性由 `protocol/`（帧编解码）、`session/`（QoS 状态机）与 `core/`（ClientCore 连接状态机）的纯层测试（wasm-gc 72 个 / native 75 个）+ `examples/pubsub`、`examples/resume`、`examples/ws-spike` 手动/端到端验证共同保障。client 层的 transport 抽象与可测性改进是后续版本的工程债。
+- **`client/` 层无独立单测**：client 是 native + C FFI，无法在 wasm 后端直接实例化；其逻辑正确性由 `protocol/`（帧编解码）、`session/`（QoS 状态机）与 `core/`（ClientCore 连接状态机）的纯层测试（wasm-gc 74 个 / native 77 个）+ `examples/pubsub`、`examples/resume`、`examples/ws-spike` 手动/端到端验证共同保障。client 层的 transport 抽象与可测性改进是后续版本的工程债。
 
 ## 许可证
 

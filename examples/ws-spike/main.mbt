@@ -149,57 +149,120 @@ pub fn spike_on_bytes(bytes : Array[Int]) -> Array[Int] {
   }
 }
 
+/// JS onclose 回调：通知 MoonBit core transport 已断开。
+/// core 内部把状态切到 Disconnected，保留 SessionStore（in-flight QoS1/2
+/// 重连后继续推进）。JS 侧随后 setTimeout 1s 新建 WebSocket。
+pub fn spike_on_transport_close() -> Unit {
+  match g_core[0] {
+    Some(core) => {
+      core.on_transport_close()
+      println("[spike] core.on_transport_close() → state=Disconnected")
+    }
+    None => ()
+  }
+}
+
+/// JS 新 WebSocket onopen 时调用：让 MoonBit core 重新编码 CONNECT 字节，
+/// 内部把状态切回 Connecting、清空 framer 残留缓冲、保留 SessionStore。
+/// 返回的字节数组由 JS 侧 ws.send 发出。
+pub fn spike_reconnect_bytes() -> Array[Int] {
+  match g_core[0] {
+    Some(core) => {
+      let bytes = core.reconnect_bytes()
+      println(
+        "[spike] core.reconnect_bytes() → " + bytes.length().to_string() +
+          " bytes (state=Connecting, session preserved)",
+      )
+      return bytes
+    }
+    None => return []
+  }
+}
+
 // extern "js"：在 JS 侧持有 WebSocket，发送 CONNECT，收 CONNACK 打 hex 并回调 spike_on_bytes。
 // connect_bytes 是 MoonBit Array[Int]（js 后端即 JS number 数组）。
 // onmessage 回调里直接调用 MoonBit 编译后生成的 mangled 函数名。
 // 注：extern "js" 不支持函数类型参数，且 MoonBit 编译器会 DCE 掉只被 extern "js" 引用的函数，
 // 因此 main() 里必须先 spike_on_bytes([]) 调用一次防止 DCE（见 main 注释）。
+//
+// 断线重连策略（spike 阶段）：
+// - onclose 触发后，先调 spike_on_transport_close() 通知 core；
+// - 延迟 1s 后新建 WebSocket 到同一 URL；
+// - 新 onopen 时调 spike_reconnect_bytes() 拿新 CONNECT 字节（core 已切回 Connecting）；
+// - 重连后收到新 CONNACK，feed() 检测到 ConnackReceived 会再次自动 SUBSCRIBE；
+// - 重连次数在 JS 闭包里计数，spike 阶段限 3 次，超过不再重连。
 extern "js" fn run_ws_spike(connect_bytes : Array[Int]) -> Unit =
   #|(connectBytes) => {
   #|  const url = "wss://broker.emqx.io:8084/mqtt";
-  #|  console.log("[spike] connecting to " + url + " (subprotocol mqtt)");
-  #|  const ws = new WebSocket(url, "mqtt");
-  #|  ws.binaryType = "arraybuffer";
-  #|  ws.onopen = function() {
-  #|    console.log("[spike] onopen, sending CONNECT, " + connectBytes.length + " bytes");
-  #|    const u8 = new Uint8Array(connectBytes.length);
-  #|    for (let i = 0; i < connectBytes.length; i++) {
-  #|      u8[i] = connectBytes[i];
-  #|    }
-  #|    ws.send(u8.buffer);
-  #|  };
-  #|  ws.onmessage = function(ev) {
-  #|    const u8 = new Uint8Array(ev.data);
-  #|    const parts = [];
-  #|    const arr = [];
-  #|    for (let j = 0; j < u8.length; j++) {
-  #|      let h = u8[j].toString(16).toUpperCase();
-  #|      if (h.length < 2) { h = "0" + h; }
-  #|      parts.push(h);
-  #|      arr.push(u8[j]);
-  #|    }
-  #|    console.log("[spike] onmessage hex: " + parts.join(" "));
-  #|    const ret = _M0FP48Duckweed11moon_2dmqtt8examples10ws_2dspike16spike__on__bytes(arr);
-  #|    if (ret && ret.length > 0) {
-  #|      const out = new Uint8Array(ret.length);
-  #|      for (let k = 0; k < ret.length; k++) { out[k] = ret[k]; }
-  #|      console.log("[spike] sending outgoing " + out.length + " bytes back to broker");
-  #|      ws.send(out.buffer);
-  #|    }
-  #|  };
-  #|  ws.onerror = function() {
-  #|    console.log("[spike] onerror");
-  #|  };
-  #|  ws.onclose = function(ev) {
-  #|    console.log("[spike] onclose code=" + ev.code + " reason=" + ev.reason);
-  #|  };
+  #|  let initialBytes = connectBytes;
+  #|  let reconnectAttempts = 0;
+  #|  const MAX_RECONNECT = 3;
+  #|  function openWs() {
+  #|    console.log("[spike] connecting to " + url + " (subprotocol mqtt)");
+  #|    const ws = new WebSocket(url, "mqtt");
+  #|    ws.binaryType = "arraybuffer";
+  #|    ws.onopen = function() {
+  #|      let bytes = initialBytes;
+  #|      if (reconnectAttempts > 0) {
+  #|        console.log("[spike] reconnect attempt #" + reconnectAttempts + " onopen, fetching fresh CONNECT");
+  #|        bytes = _M0FP48Duckweed11moon_2dmqtt8examples10ws_2dspike23spike__reconnect__bytes();
+  #|      }
+  #|      console.log("[spike] onopen, sending CONNECT, " + bytes.length + " bytes");
+  #|      const u8 = new Uint8Array(bytes.length);
+  #|      for (let i = 0; i < bytes.length; i++) {
+  #|        u8[i] = bytes[i];
+  #|      }
+  #|      ws.send(u8.buffer);
+  #|    };
+  #|    ws.onmessage = function(ev) {
+  #|      const u8 = new Uint8Array(ev.data);
+  #|      const parts = [];
+  #|      const arr = [];
+  #|      for (let j = 0; j < u8.length; j++) {
+  #|        let h = u8[j].toString(16).toUpperCase();
+  #|        if (h.length < 2) { h = "0" + h; }
+  #|        parts.push(h);
+  #|        arr.push(u8[j]);
+  #|      }
+  #|      console.log("[spike] onmessage hex: " + parts.join(" "));
+  #|      const ret = _M0FP48Duckweed11moon_2dmqtt8examples10ws_2dspike16spike__on__bytes(arr);
+  #|      if (ret && ret.length > 0) {
+  #|        const out = new Uint8Array(ret.length);
+  #|        for (let k = 0; k < ret.length; k++) { out[k] = ret[k]; }
+  #|        console.log("[spike] sending outgoing " + out.length + " bytes back to broker");
+  #|        ws.send(out.buffer);
+  #|      }
+  #|    };
+  #|    ws.onerror = function() {
+  #|      console.log("[spike] onerror");
+  #|    };
+  #|    ws.onclose = function(ev) {
+  #|      console.log("[spike] onclose code=" + ev.code + " reason=" + ev.reason);
+  #|      try {
+  #|        _M0FP48Duckweed11moon_2dmqtt8examples10ws_2dspike27spike__on__transport__close();
+  #|      } catch (e) {
+  #|        console.log("[spike] on_transport_close call failed: " + e);
+  #|      }
+  #|      if (reconnectAttempts < MAX_RECONNECT) {
+  #|        reconnectAttempts = reconnectAttempts + 1;
+  #|        console.log("[spike] reconnect attempt #" + reconnectAttempts + " scheduled in 1s (max " + MAX_RECONNECT + ")");
+  #|        setTimeout(openWs, 1000);
+  #|      } else {
+  #|        console.log("[spike] max reconnect attempts (" + MAX_RECONNECT + ") reached, giving up");
+  #|      }
+  #|    };
+  #|  }
+  #|  openWs();
   #|}
 
 fn main() -> Unit {
-  // 防止 DCE：spike_on_bytes / feed / format_events 链只被 extern "js" 引用，
-  // 编译器静态分析不到，必须在这里实际调用一次才会生成对应 JS 函数。
-  // g_core 此时为 None，spike_on_bytes 静默返回。
+  // 防止 DCE：spike_on_bytes / spike_on_transport_close / spike_reconnect_bytes
+  // 以及 feed / format_events 链只被 extern "js" 引用，编译器静态分析不到，
+  // 必须在这里实际调用一次才会生成对应 JS 函数。
+  // g_core 此时为 None，这些调用静默返回。
   let _ = spike_on_bytes([])
+  let _ = spike_on_transport_close()
+  let _ = spike_reconnect_bytes()
   let core = @core.ClientCore::new(@protocol.ConnectPacket::new("ws-spike"))
   let connect_bytes = core.start()
   println(

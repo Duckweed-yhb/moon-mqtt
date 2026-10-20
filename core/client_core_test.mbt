@@ -312,3 +312,83 @@ test "inbound pubcomp clears outbound qos2 inflight" {
     }
   }
 }
+
+// ---------- 断线重连 ----------
+
+test "on_transport_close moves to disconnected and reconnect_bytes reproduces start" {
+  // "ws-spike" = 8 字节 client id → CONNECT 帧总长 = 2 + 10 + 2 + 8 = 22 字节。
+  let core = @core.ClientCore::new(@protocol.ConnectPacket::new("ws-spike"))
+  let first = core.start()
+  assert_eq(first.length(), 22)
+  // 先 CONNACK 进入 Connected
+  let _ = core.feed([0x20, 0x02, 0x00, 0x00])
+  match core.state() {
+    @core.CoreState::Connected => ()
+    _ => fail("expected Connected before close")
+  }
+  // 模拟 transport 断开
+  core.on_transport_close()
+  match core.state() {
+    @core.CoreState::Disconnected => ()
+    _ => fail("expected Disconnected after on_transport_close")
+  }
+  // 重连拿新 CONNECT 字节：与首次 start() 字节完全一致
+  let second = core.reconnect_bytes()
+  assert_eq(second.length(), 22)
+  assert_eq(second, first)
+  // 状态切回 Connecting（等新 CONNACK）
+  match core.state() {
+    @core.CoreState::Connecting => ()
+    _ => fail("expected Connecting after reconnect_bytes")
+  }
+}
+
+test "reconnect preserves in-flight session and continues qos handshake" {
+  // 种子：一条在途 QoS1 PUBLISH（pid=1）注入 core。
+  let seed = @protocol.PublishPacket::new(
+    "out/t", [0xAA], @protocol.qos1(), false, false, 0
+  )
+  match @session.record_outbound(@session.SessionStore::new(), seed) {
+    (store, pid) => {
+      assert_eq(pid, 1)
+      assert_eq(store.inflight_count(), 1)
+      let core = @core.ClientCore::with_session(
+        @protocol.ConnectPacket::new("ws-spike"), store
+      )
+      let _ = core.start() // CONNECT
+      let _ = core.feed([0x20, 0x02, 0x00, 0x00]) // 首联 CONNACK → Connected
+      assert_eq(core.session().inflight_count(), 1)
+      // 断线
+      core.on_transport_close()
+      match core.state() {
+        @core.CoreState::Disconnected => ()
+        _ => fail("expected Disconnected")
+      }
+      // 断线后 session 仍在（in-flight 不丢）
+      assert_eq(core.session().inflight_count(), 1)
+      // 重连：拿新 CONNECT 字节
+      let reconnect = core.reconnect_bytes()
+      assert_eq(reconnect.length(), 22)
+      match core.state() {
+        @core.CoreState::Connecting => ()
+        _ => fail("expected Connecting after reconnect_bytes")
+      }
+      // 重连后喂新 CONNACK → 状态迁移回 Connected
+      let _ = core.feed([0x20, 0x02, 0x00, 0x00])
+      match core.state() {
+        @core.CoreState::Connected => ()
+        _ => fail("expected Connected after second CONNACK")
+      }
+      // session 还在，in-flight 仍为 1
+      assert_eq(core.session().inflight_count(), 1)
+      // 喂 PUBACK(pid=1) → in-flight 被清理，说明重连后握手继续推进
+      match core.feed([0x40, 0x02, 0x00, pid]) {
+        (events, outgoing) => {
+          assert_eq(events.length(), 0)
+          assert_eq(outgoing.length(), 0)
+        }
+      }
+      assert_eq(core.session().inflight_count(), 0)
+    }
+  }
+}

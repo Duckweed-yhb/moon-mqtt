@@ -1,0 +1,20 @@
+///|
+/// core — MQTT 客户端纯计算核心层（B 方案：JS/C 胶水持有 socket）
+///
+/// Day 1 范围：
+/// - 字节帧组装器（Framer）：把 socket 推过来的字节流拆成完整 MQTT 帧，
+///   处理半包/粘包。
+/// - 连接状态机（CoreState）：Disconnected / Connecting / Connected / Disconnecting。
+/// - ClientCore：导出 start() 出 CONNECT 帧、feed(bytes) 入站字节流，
+///   返回 (CoreEvent 列表, 需要胶水层发出的出站字节列表)。
+///
+/// 不碰 I/O：本包不 import 任何 platform / transport / client，
+/// 所有 socket 收发由外层 JS/C 胶水负责。QoS1/2 自动握手（PUBACK/PUBREC/
+/// PUBREL/PUBCOMP 自动回包）留 Day 2；本 Day 1 只覆盖 CONNECT/CONNACK/
+/// PUBLISH(QoS0)/PING 的最小状态机。
+supported_targets = "wasm+wasm-gc+js+native"
+
+import {
+  "moonbitlang/core/debug",
+  "Duckweed/moon-mqtt/protocol" @protocol,
+}

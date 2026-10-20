@@ -83,6 +83,43 @@ client.disconnect()?
 
 > `?` 为 Result 传播（出错即返回 `Err`）。`@client` / `@protocol` 为依赖包子包模块前缀。`qos1()` / `qos0()` / `qos2()` 是跨包构造 QoS 枚举的 helper（绕开 native 后端 executable 包的 enum 构造限制）。
 
+### 浏览器 / Node WebSocket 连接（B 方案，js 后端）
+
+`examples/ws-spike/` 是一个**端到端打通 MQTT over WebSocket 的最小验证**：用 MoonBit js 后端编译成 JS bundle，在 Node 里直接连公共 EMQX broker `wss://broker.emqx.io:8084/mqtt`（子协议 `mqtt`），CONNACK 真实收到。这证明了 MoonBit core 纯计算层在浏览器 / Node 环境下可以通过 WebSocket 胶水层接入 MQTT 生态，不依赖 native socket。
+
+```powershell
+# 在仓库根目录
+moon build --target js examples/ws-spike
+node "_build\js\debug\build\examples\ws-spike\ws-spike.js"
+```
+
+Node 实测输出（原文，订阅 + 收 PUBLISH 全链路）：
+
+```
+[spike] core start() generated CONNECT, 22 bytes
+[spike] connecting to wss://broker.emqx.io:8084/mqtt (subprotocol mqtt)
+[spike] onopen, sending CONNECT, 22 bytes
+[spike] onmessage hex: 20 02 00 00
+[spike] core feed() events: [Connack(session_present=0, return_code=Accepted)]
+[spike] sending SUBSCRIBE pid=1 sensors/# QoS1
+[spike] onmessage hex: 90 03 00 01 01
+[spike] core feed() events: [Suback(subscribed to sensors/#)]
+[spike] onmessage hex: 30 13 00 0C 73 65 6E 73 6F 72 73 2F 74 65 73 74 68 65 6C 6C 6F
+[spike] core feed() events: [Publish(topic=sensors/test, payload=68 65 6C 6C 6F)]
+```
+
+`20 02 00 00` = CONNACK（0x20，session_present=0，return_code=Accepted）。`90 03 00 01 01` = SUBACK（0x90，pid=1，QoS=1 已订阅）。最后一行 `30 13 ...` 是一个 QoS0 PUBLISH，topic=sensors/test，payload `68 65 6C 6C 6F` = ASCII "hello"——由另一个 node 发布脚本经同一 WebSocket 发入 EMQX broker，ws-spike 端真实收到并由 core.feed() 解析成 `PublishReceived` 事件。
+
+**B 方案架构**（与 A 方案对比见 [docs/WS-SPIKE.md](docs/WS-SPIKE.md)）：
+
+- **JS 胶水层**持有 `WebSocket`（建连、onopen 发 CONNECT、onmessage 收字节），用 `extern "js"` 写在 `examples/ws-spike/main.mbt` 里；
+- **MoonBit core 纯计算层**只导出两个函数：
+  - `ClientCore::new(connect_packet).start() -> Array[Int]`：生成 CONNECT 帧字节；
+  - `core.feed(bytes) -> (Array[CoreEvent], Array[Int] 出站字节)`：喂入 broker 字节，返回解析出的事件 + 需要回发的字节（PUBACK/PUBREC/PUBREL/PINGRESP 等）。
+- core 不 import 任何 WebSocket / socket 依赖，因此同一份代码在 native（C FFI socket）和 js/wasm（WebSocket）下都能跑，core 状态机零改动。
+
+> 这是 spike 阶段的验证示例（`examples/ws-spike/`），不是正式的浏览器 API。当前已打通 CONNECT/CONNACK → SUBSCRIBE/SUBACK → 收 PUBLISH 渲染全链路，core/ 已内置 QoS1/2 自动握手（PUBACK/PUBREC/PUBCOMP）。正式的浏览器 client 封装（自动重连、消息回调管理、QoS 出站 PUBLISH 支持）是后续路线。
+
 ## 真实用例：物联网边缘遥测上报
 
 MQTT 是物联网/边缘计算的事实标准。moon-mqtt 让 **MoonBit 程序可以直接接入 MQTT 生态**——这是它区别于"协议玩具"的实用价值：别的语言（Python/Go/Rust/JS）都能连 MQTT，MoonBit 此前不行。
@@ -129,12 +166,14 @@ README 顶部写"3.1.1 全量"，此处给出**实际支持的字段清单**，�
 ```
 protocol/   报文编解码（纯计算，四后端可测）   ✅
 session/    会话状态机（纯计算，四后端可测）   ✅
+core/       ClientCore 连接状态机（纯计算，四后端可测） ✅
 transport/  native TCP 网络层（C FFI）        ✅
 client/     高层客户端 API（native）          ✅
 ```
 
-- `protocol/` 与 `session/` 是纯计算包，不 import 任何 platform 依赖，声明覆盖全部四个后端（wasm / wasm-gc / js / native）。
+- `protocol/`、`session/`、`core/` 是纯计算包，不 import 任何 platform 依赖，声明覆盖全部四个后端（wasm / wasm-gc / js / native）。
 - `transport/` 与 `client/` 是 `native` only：transport 用 C FFI 自写 socket（Windows winsock2 / POSIX），client 把 protocol+session+transport 组装成阻塞式 `MqttClient`。
+- 浏览器 / Node 场景不走 transport/，而是由 `examples/ws-spike/` 里的 JS 胶水层持有 WebSocket，调 core 的 `start()/feed()` 纯函数；core 状态机在 native 和 js/wasm 下零改动复用。
 - QoS2 的 exactly-once（PUBREC/PUBREL/PUBCOMP 握手）与断线重连状态边界，是评审最看重、也最体现工程深度的部分。
 
 ## 状态
@@ -145,7 +184,9 @@ client/     高层客户端 API（native）          ✅
 - [x] `transport/` native 网络层（C FFI TCP socket，跨平台，带 wait_read 超时）
 - [x] `client/` 高层 API（connect / publish / subscribe / poll_loop 自动心跳 / reconnect 自动重连 / disconnect）
 - [x] **mooncakes 发布（`Duckweed/moon-mqtt@0.1.2`）**
-- [x] 测试：`moon test --target wasm-gc` 58/58 通过；`moon test --target native` 61/61 通过；0 警告
+- [x] **`core/` ClientCore 连接状态机（纯计算，四后端可测）**
+- [x] **浏览器 / Node WebSocket 端到端打通（`examples/ws-spike/`，连公共 EMQX broker 收 CONNACK）**
+- [x] 测试：`moon test --target wasm-gc` 72/72 通过；`moon test --target native` 75/75 通过；0 警告
 
 ### `protocol/` 已实现
 
@@ -219,10 +260,10 @@ mosquitto_sub -h 127.0.0.1 -t 'sensors/#' -v
 ## 已知限制（如实说明）
 
 - **会话快照的落盘文件 I/O**：`SessionStore` 已提供字节级快照原语 `snapshot()` / `restore()`（`session/persistent.mbt`），调用方拿到 `(next_id, Array[InflightWire])` 即可自行写盘、进程重启后 `restore()` 重建会话；`reconnect()` 在同进程内重连 + replay。库本身不做文件读写（native 层文件 I/O 留待后续），跨进程重启由调用方 3 行胶水代码完成。
-- **`transport/` 与 `client/` 仅支持 native 后端**：它们依赖 C FFI socket，`extern "C"` 在 wasm 系列后端不存在。`protocol/` 与 `session/` 不受此限（四后端可编译可测）。
+- **`transport/` 与 `client/` 仅支持 native 后端**：它们依赖 C FFI socket，`extern "C"` 在 wasm 系列后端不存在。`protocol/`、`session/`、`core/` 不受此限（四后端可编译可测）。浏览器 / Node 场景通过 WebSocket 胶水层接入：`examples/ws-spike/` 已端到端验证 moon-bit js 后端连 `wss://broker.emqx.io:8084/mqtt` 并收到 CONNACK（见上方"浏览器 / Node WebSocket 连接"章节），但正式的浏览器 client 封装（自动重连、订阅、消息回调、QoS 握手）尚未提供。
 - **阻塞式 API**：`client/` 为阻塞式，适合 CLI / 边缘遥测上报等确定性场景；高并发长连接场景需要多线程或异步封装，当前未提供。
 - **publish/subscribe/ping 同步握手期间的入站 PUBLISH**：`publish` 等 PUBACK/PUBREC/PUBCOMP、`subscribe` 等 SUBACK 时，若 broker 恰好推来你订阅主题的入站 PUBLISH，当前代码会返回 `"expected XXX"` 错误并把该报文丢掉。边发布边接收的场景应改用 `poll_loop` 主循环 + `subscribe_with_handler`。
-- **`client/` 层无独立单测**：client 是 native + C FFI，无法在 wasm 后端直接实例化；其逻辑正确性由 `protocol/`（帧编解码）与 `session/`（QoS 状态机）的纯层测试（wasm-gc 58 个 / native 61 个）+ `examples/pubsub`、`examples/resume` 手动验证共同保障。client 层的 transport 抽象与可测性改进是后续版本的工程债。
+- **`client/` 层无独立单测**：client 是 native + C FFI，无法在 wasm 后端直接实例化；其逻辑正确性由 `protocol/`（帧编解码）、`session/`（QoS 状态机）与 `core/`（ClientCore 连接状态机）的纯层测试（wasm-gc 72 个 / native 75 个）+ `examples/pubsub`、`examples/resume`、`examples/ws-spike` 手动/端到端验证共同保障。client 层的 transport 抽象与可测性改进是后续版本的工程债。
 
 ## 许可证
 

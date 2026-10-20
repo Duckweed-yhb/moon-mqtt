@@ -2,7 +2,7 @@
 
 MoonBit 生态的 **MQTT 3.1.1 客户端库（当前阻塞式，异步封装为后续路线）**。
 
-MQTT 是物联网与边缘计算事实上的消息协议标准（OASIS 规范），而 MoonBit 生态目前没有任何 MQTT 客户端。moon-mqtt 补齐这一环：以 OASIS MQTT 3.1.1 公开规范为实现依据（MQTT 5.0 为后续路线），交付纯 MoonBit 的发布/订阅客户端（`client/` 高层 API 为阻塞式，适合 CLI / 边缘遥测；`protocol/` + `session/` 纯计算层四后端可测）。
+MQTT 是物联网与边缘计算事实上的消息协议标准（OASIS 规范）。MoonBit 生态已有两个相关项目：`zbhzs1/moonbit-mqtt` 只做 packet codec（无 transport、无 client runtime），`Strangelight-Merser/moon-mqtt-client` 是 async client（QoS 0/1，无 QoS2 exactly-once）。本项目补齐的是 **QoS2 exactly-once 会话状态机 + 阻塞式 client**：以 OASIS MQTT 3.1.1 公开规范为实现依据（MQTT 5.0 为后续路线），`protocol/` + `session/` 纯计算层四后端可测，`client/` 阻塞式适合 CLI / 边缘遥测。
 
 > 参考移植（原创重写，不复制源码）：API 设计参考 [MQTT.js](https://github.com/mqttjs/MQTT.js)（MIT），协议行为参考 [Eclipse Paho C client](https://github.com/eclipse/paho.mqtt.c)（EPL-2.0/EDL-1.0）。本项目许可证 **MIT**。
 

@@ -60,3 +60,42 @@ node "_build\js\debug\build\examples\ws-spike\ws-spike.js"
 3. CONNECT 帧构造从 `build_connect()` 泛化为 `encode_connect(client_id, keepalive, clean_session)`，走 protocol 层已有的编解码（不重复造轮子）。
 4. 把 `Array[Int]` 全部换成 `FixedArray[Byte]`，消除 deprecated warning，顺便让 js 侧直接拿到 Uint8Array 不用手动拷贝。
 5. 用 `moon test` 给 core 状态机写单测：构造 CONNACK 字节喂进去，断言状态从 `SentConnect` 迁移到 `Connected`，且无 outbound 字节。
+
+---
+
+## Day 2：从"手写字节"迁移到"core/ 驱动"（2026-10-20）
+
+### 改了什么
+
+`examples/ws-spike/main.mbt` 不再手写 CONNECT 帧字节，改用 `@core.ClientCore`：
+
+- **连接建立**：`ClientCore::new(ConnectPacket::new("ws-spike"))` → `core.start()` 生成 CONNECT 字节（22 字节，与 Day 0 手写版一致）。
+- **收包处理**：`onmessage` 收到 broker 字节后，调用 `spike_on_bytes(arr)` 喂给 `core.feed(bytes)`，MoonBit 侧 match 出 `CoreEvent` 并格式化打印。
+- **JS 胶水**：`extern "js" run_ws_spike(connect_bytes)` 仍持有 WebSocket；onmessage 里先打 hex，再把字节数组传给 MoonBit 回调。
+
+`examples/ws-spike/moon.pkg` 新增依赖：`@core` 和 `@protocol`。
+
+### Console 输出（原文）
+
+```
+[spike] core start() generated CONNECT, 22 bytes
+[spike] connecting to wss://broker.emqx.io:8084/mqtt (subprotocol mqtt)
+[spike] onopen, sending CONNECT, 22 bytes
+[spike] onmessage hex: 20 02 00 00
+[spike] core feed() events: [Connack(session_present=0, return_code=Accepted)]
+```
+
+### 新踩的坑
+
+1. **extern "js" 不支持函数类型作参数**：`run_ws_spike(connect_bytes, on_bytes : Array[Int] -> Unit)` 直接 Parse error。MoonBit 0.10.15 的 extern "js" 参数列表不接受 `->` 函数类型。解法：用包级变量 + 顶层函数代替闭包传参。
+2. **MoonBit 顶层不支持 `let mut`**：`let mut g_core : ClientCore? = None` 报 Parse error。解法：用单元素数组 `let g_core : Array[ClientCore?] = [None]` 作为可变容器（Array 是引用类型，元素可赋值）。
+3. **Dead Code Elimination 会干掉只被 extern "js" 引用的函数**：`spike_on_bytes` 是 `pub fn`，但编译器只从 main() 做可达性分析，extern "js" 块里的 JS 字符串不被分析为引用，导致 `spike_on_bytes` 及其整条调用链（`core.feed` → `format_events` → `format_event`）都不生成 JS 函数。解法：在 main() 开头实际调用一次 `spike_on_bytes([])`（此时 g_core 为 None，静默返回），强制编译器生成整条链。
+4. **extern "js" 里调用 MoonBit 函数必须用 mangled 名**：MoonBit js 后端把函数编译成 `_M0FP...<pkg_path><len><name>` 形式的 mangled 名。`spike_on_bytes` 编译后是 `_M0FP48Duckweed11moon_2dmqtt8examples10ws_2dspike16spike__on__bytes`。在 extern "js" 的 JS 代码里必须用这个 mangled 名调用，不能用原始函数名。
+5. **CoreEvent 未 derive Debug**：Day 1 注释里说 CoreEvent 不 derive(Eq, Debug)（因为 protocol 的 Connack/PublishPacket 没有实现）。spike 里需要手动写 `format_event()` 用 match 解构每个 variant 拼字符串，不能直接 `println(event)`。
+
+### 回归验证
+
+- `moon build --target js examples/ws-spike`：成功（1 个既有 Array FFI deprecated warning，按要求不动）
+- `moon check --target wasm-gc`：0 警告 0 错误
+- `moon test --target wasm-gc`：66/66 通过
+- `moon test --target native`：全部通过

@@ -10,9 +10,9 @@
 ///   * 入站 QoS1 PUBLISH → 自动回 PUBACK；
 ///   * 入站 QoS2 PUBLISH → 自动回 PUBREC；
 ///   * 入站 PUBREL → 自动回 PUBCOMP；
-///   * 入站 PUBACK/PUBREC/PUBCOMP 作为出站在途握手的应答，驱动
-///     `@session.SessionStore` 状态推进（on_puback / on_pubrec / on_pubcomp），
-///     其中 on_pubrec 还会产出 PUBREL 字节（出站 QoS2 握手）。
+///   * 出站 QoS1 PUBLISH（`publish(qos1)`）→ 自动等 PUBACK，清理在途；
+///   * 出站 QoS2 PUBLISH（`publish(qos2)`）→ 自动等 PUBREC→PUBREL→PUBCOMP，
+///     PUBREC 时自动产出 PUBREL 字节；
 /// - 出站字节列表由上述自动握手产生，胶水层需把返回的第二元素
 ///   原样写回 socket。
 ///
@@ -172,16 +172,39 @@ pub fn ClientCore::feed(
   return (events, outgoing)
 }
 
-/// 便利方法：返回 QoS0 PUBLISH 编码字节（胶水层直接发出）。
-/// 当前版本未扩展为 QoS1/2：出站 QoS1/2 的 record_outbound 接入留后续。
+/// 便利方法：编码 PUBLISH 并记录在途（QoS1/2）。
+///
+/// QoS0：不入在途，直接返回编码字节。
+/// QoS1/2：内部调用 `@session.record_outbound` 分配 packet_id 并记入
+/// `self.session`，返回带 pid 的编码字节；收到 PUBACK/PUBREC/PUBCOMP
+/// 后由 `feed()` 自动清理在途。
 pub fn ClientCore::publish(
-  self : ClientCore, topic : String, payload : Array[Int]
+  self : ClientCore, topic : String, payload : Array[Int], qos : @protocol.QoS
 ) -> Array[Int] {
-  let _ = self.state
   let pkt = @protocol.PublishPacket::new(
-    topic, payload, @protocol.qos0(), false, false, 0
+    topic, payload, qos, false, false, 0
   )
-  return @protocol.encode_publish(pkt)
+  match qos {
+    @protocol.QoS::AtMostOnce => {
+      return @protocol.encode_publish(pkt)
+    }
+    _ => {
+      match @session.record_outbound(self.session, pkt) {
+        (store, pid) => {
+          self.session = store
+          let with_pid = pkt.with_packet_id(pid)
+          return @protocol.encode_publish(with_pid)
+        }
+      }
+    }
+  }
+}
+
+/// 断线重连后需要重发的在途报文序列（按原始发送序）。
+/// 由 `@session.replay` 产出：WaitingPuback/WaitPubrec 重发 PUBLISH(DUP=1)，
+/// WaitPubcomp 重发 PUBREL。
+pub fn ClientCore::replay_bytes(self : ClientCore) -> Array[Array[Int]] {
+  return @session.replay(self.session)
 }
 
 /// 发出 PINGREQ：pending_pings += 1，返回编码字节。

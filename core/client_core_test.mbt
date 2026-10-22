@@ -392,3 +392,88 @@ test "reconnect preserves in-flight session and continues qos handshake" {
     }
   }
 }
+
+// ---------- 出站 QoS1/2 PUBLISH 完整握手（core.publish 接入 record_outbound） ----------
+
+test "outbound qos1 publish records inflight and puback clears" {
+  // core.publish(qos1) 应自动分配 pid=1、记入 session，
+  // 喂 PUBACK(pid=1) 后 inflight 清零。
+  let core = @core.ClientCore::new(@protocol.ConnectPacket::new("core-test"))
+  let _ = core.feed([0x20, 0x02, 0x00, 0x00]) // CONNACK → Connected
+  let bytes = core.publish("out/t", [0xAA], @protocol.qos1())
+  // PUBLISH 帧：0x32 (qos1) + rlen=10 + topic(00 05 6F 75 74 2F 74) + pid(00 01) + payload(AA)
+  assert_eq(bytes[0], 0x32)
+  assert_eq(bytes[1], 10)
+  assert_eq(bytes[9], 0x00) // pid high
+  assert_eq(bytes[10], 0x01) // pid low
+  // session 有 1 条在途
+  assert_eq(core.session().inflight_count(), 1)
+  // 喂 PUBACK(pid=1) → 清理
+  match core.feed([0x40, 0x02, 0x00, 0x01]) {
+    (events, outgoing) => {
+      assert_eq(events.length(), 0)
+      assert_eq(outgoing.length(), 0)
+    }
+  }
+  assert_eq(core.session().inflight_count(), 0)
+}
+
+test "outbound qos2 publish full handshake pubrec pubrel pubcomp" {
+  // core.publish(qos2) → 自动记录在途；
+  // 喂 PUBREC(pid=1) → 自动产出 PUBREL 字节；
+  // 喂 PUBCOMP(pid=1) → inflight 清零。
+  let core = @core.ClientCore::new(@protocol.ConnectPacket::new("core-test"))
+  let _ = core.feed([0x20, 0x02, 0x00, 0x00]) // CONNACK
+  let _ = core.publish("out/qos2", [0xBB], @protocol.qos2())
+  assert_eq(core.session().inflight_count(), 1)
+  // 喂 PUBREC(pid=1)
+  match core.feed([0x50, 0x02, 0x00, 0x01]) {
+    (events, outgoing) => {
+      assert_eq(events.length(), 0)
+      // 出站字节 = PUBREL(0x62, pid=1)
+      assert_eq(outgoing, [0x62, 0x02, 0x00, 0x01])
+    }
+  }
+  // 仍在 WaitPubcomp 阶段
+  assert_eq(core.session().inflight_count(), 1)
+  // 喂 PUBCOMP(pid=1)
+  match core.feed([0x70, 0x02, 0x00, 0x01]) {
+    (events, outgoing) => {
+      assert_eq(events.length(), 0)
+      assert_eq(outgoing.length(), 0)
+    }
+  }
+  assert_eq(core.session().inflight_count(), 0)
+}
+
+test "reconnect after outbound qos2 publish replays dup publish" {
+  // 发 QoS2 PUBLISH 后断线，reconnect_bytes() 保留 session；
+  // replay_bytes() 应产出 DUP=1 的 PUBLISH 帧（WaitPubrec 阶段）。
+  let core = @core.ClientCore::new(@protocol.ConnectPacket::new("ws-spike"))
+  let _ = core.feed([0x20, 0x02, 0x00, 0x00]) // CONNACK
+  let _ = core.publish("out/t", [0xCC], @protocol.qos2())
+  assert_eq(core.session().inflight_count(), 1)
+  // 断线
+  core.on_transport_close()
+  // 重连：拿新 CONNECT 字节
+  let reconnect = core.reconnect_bytes()
+  assert_eq(reconnect.length(), 22)
+  // session 仍在
+  assert_eq(core.session().inflight_count(), 1)
+  // replay_bytes 产出 DUP=1 的 PUBLISH
+  let replay = core.replay_bytes()
+  assert_eq(replay.length(), 1)
+  // DUP flag = 0x08，所以 PUBLISH 第一个字节 = 0x30 | 0x08 | (2<<1) = 0x3C
+  assert_eq(replay[0][0], 0x3C)
+  // 喂新 CONNACK → Connected
+  let _ = core.feed([0x20, 0x02, 0x00, 0x00])
+  // 喂 PUBREC → 自动 PUBREL
+  match core.feed([0x50, 0x02, 0x00, 0x01]) {
+    (_, outgoing) => {
+      assert_eq(outgoing, [0x62, 0x02, 0x00, 0x01])
+    }
+  }
+  // 喂 PUBCOMP → 清理
+  let _ = core.feed([0x70, 0x02, 0x00, 0x01])
+  assert_eq(core.session().inflight_count(), 0)
+}

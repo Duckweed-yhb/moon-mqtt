@@ -7,7 +7,7 @@ MoonBit 写的 MQTT 3.1.1 客户端。浏览器里走 WebSocket，native 上走 
 | 宿主 | 包 | 形态 |
 |---|---|---|
 | 浏览器（js 后端） | `browser/` | 回调式，publish 支持 QoS0/1/2，断线 1 秒自动重连 |
-| native | `client/` | 阻塞式，自动心跳，重连后自动 replay |
+| native | `client/` | 阻塞式，自动心跳；调用 `reconnect()` 后自动 replay |
 | 纯计算层 | `protocol/` `session/` `core/` | wasm / wasm-gc / js / native 四后端可测 |
 
 ## 安装

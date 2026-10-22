@@ -5,8 +5,10 @@
 /// WebSocket 由 JS 胶水持有，MoonBit 侧只做纯计算。提供 connect /
 /// subscribe / publish / disconnect / on_message 高层 API。
 ///
-/// 支持 QoS0 发布；QoS1/2 出站握手接入留后续（与 core.publish() 一致）。
+/// 发布支持 QoS0/1/2：QoS1/2 走 core.publish()，packet_id 与在途由 core/session 管理。
 /// 入站 QoS1/2 PUBLISH 由 core.feed() 自动回 PUBACK/PUBREC/PUBCOMP。
+/// API：connect / connect_opts / connect_persistent / on_connect / on_suback /
+/// on_message / subscribe / publish / disconnect。
 supported_targets = "js"
 
 import {

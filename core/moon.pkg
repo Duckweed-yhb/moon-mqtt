@@ -9,8 +9,8 @@
 ///   返回 (CoreEvent 列表, 需要胶水层发出的出站字节列表)。
 ///
 /// 不碰 I/O：本包不 import 任何 platform / transport / client，
-/// 所有 socket 收发由外层 JS/C 胶水负责。当前版本已覆盖 CONNECT/CONNACK/
-/// PUBLISH/PING 最小状态机与 QoS1/2 自动握手（PUBACK/PUBREC/PUBREL/PUBCOMP）。
+/// 所有 socket 收发由外层 JS/C 胶水负责。当前覆盖 CONNECT/CONNACK、PUBLISH、
+/// SUBSCRIBE/SUBACK、PING，以及 QoS1/2 入站自动应答与出站在途追踪。
 supported_targets = "wasm+wasm-gc+js+native"
 
 import {

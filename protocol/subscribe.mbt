@@ -66,6 +66,17 @@ pub struct Suback {
   codes : Array[SubAckCode]
 }
 
+/// 所有订阅项都被 broker 接受（没有 0x80 Failure）。
+pub fn Suback::all_accepted(self : Suback) -> Bool {
+  for c in self.codes {
+    match c {
+      SubAckCode::Failure => return false
+      _ => ()
+    }
+  }
+  return true
+}
+
 /// 解码 SUBACK。data 为完整报文。
 pub fn decode_suback(data : Array[Int]) -> Result[Suback, String] {
   if data.length() < 4 {

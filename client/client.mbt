@@ -9,6 +9,12 @@
 /// PUBCOMP 后推进状态；断线后调用 `replay_frames()` 可拿到待重放帧序列，
 /// 用于实现 clean_session=false 的会话恢复。
 
+/// 单次 socket 读的默认超时（毫秒）。覆盖 CONNACK/PUBACK/PINGRESP 等
+/// 同步等待，避免 broker 不回包时永久挂起。
+fn read_timeout_ms() -> Int {
+  5000
+}
+
 /// 一条本地订阅注册：topic filter + 收到 PUBLISH 时的回调。
 /// 回调参数是 (topic, payload)，QoS 由入站 PUBLISH 帧自带。
 type SubHandler = (String, Array[Int]) -> Unit
@@ -34,6 +40,8 @@ pub struct MqttClient {
   subs : Array[SubscriptionReg]
   /// 上次发出 PINGREQ 至今的毫秒数（用于 poll_loop 自动心跳）。
   last_ping_ms : Array[Int]
+  /// 入站 QoS2 尚未收到 PUBREL 的 packet_id，用于重复 PUBLISH 去重。
+  mut inbound_qos2 : Array[Int]
 }
 
 /// 用默认参数连接（keep_alive=60、clean_session=true、无认证）。
@@ -61,7 +69,7 @@ pub fn connect_opts(
     Ok(_) => ()
   }
   // 读 CONNACK
-  let connack = match read_frame(tcp) {
+  let connack = match read_frame(tcp, read_timeout_ms()) {
     Ok(bytes) => match @protocol.decode_packet(bytes) {
       Ok(@protocol.IncomingPacket::Connack(c)) => c
       Ok(_) => {
@@ -101,6 +109,7 @@ pub fn connect_opts(
       session_present: [connack.session_present],
       subs: [],
       last_ping_ms: [0],
+      inbound_qos2: [],
     },
   )
 }
@@ -197,6 +206,10 @@ pub fn MqttClient::publish(
 pub fn MqttClient::subscribe(
   self : MqttClient, topic : String, qos : @protocol.QoS
 ) -> Result[Unit, String] {
+  match validate_publish_topic(topic) {
+    Ok(_) => ()
+    Err(e) => return Err("subscribe: " + e)
+  }
   let (s0, pid) = @session.alloc_control_packet_id(self.store[0])
   self.store[0] = s0
   if pid == 0 {
@@ -209,7 +222,13 @@ pub fn MqttClient::subscribe(
     Ok(_) => ()
   }
   match self.read_packet() {
-    Ok(@protocol.IncomingPacket::Suback(s)) if s.packet_id == pid => Ok(())
+    Ok(@protocol.IncomingPacket::Suback(s)) if s.packet_id == pid => {
+      if s.all_accepted() {
+        Ok(())
+      } else {
+        Err("SUBACK rejected")
+      }
+    }
     Ok(@protocol.IncomingPacket::Suback(_)) => Err("SUBACK id mismatch")
     Ok(_) => Err("expected SUBACK")
     Err(e) => Err(e)
@@ -240,6 +259,26 @@ pub fn MqttClient::subscribe_with_handler(
   }
 }
 
+/// 入站 QoS2 去重辅助。
+fn pid_contains(pids : Array[Int], pid : Int) -> Bool {
+  for p in pids {
+    if p == pid {
+      return true
+    }
+  }
+  return false
+}
+
+fn pid_without(pids : Array[Int], pid : Int) -> Array[Int] {
+  let kept : Array[Int] = []
+  for p in pids {
+    if p != pid {
+      kept.push(p)
+    }
+  }
+  return kept
+}
+
 /// 阻塞读一帧入站报文并派发：
 /// - PUBLISH：按 topic filter 匹配本地订阅表，调对应 handler；
 ///   QoS1/2 的 PUBLISH 会自动回 PUBACK / PUBREC+PUBREL；
@@ -262,40 +301,34 @@ pub fn MqttClient::poll_once(self : MqttClient, timeout_ms : Int) -> Result[Bool
   }
   match pkt {
     @protocol.IncomingPacket::Publish(p) => {
-      // QoS1/2 先回 ACK，再调用户回调（慢回调不阻塞 ACK）
+      // QoS1/2 先回 ACK，再调用户回调。QoS2 不在这里等 PUBREL：
+      // PUBREL 由后续 poll 的独立分支回 PUBCOMP，避免插帧导致丢消息。
+      let mut deliver = true
       match p.qos {
         @protocol.QoS::AtLeastOnce => {
-          let ack = @protocol.encode_puback(p.packet_id)
-          match self.tcp.write(ack) {
+          match self.tcp.write(@protocol.encode_puback(p.packet_id)) {
             Ok(_) => ()
             Err(e) => return Err(e)
           }
         }
         @protocol.QoS::ExactlyOnce => {
-          let rec = @protocol.encode_pubrec(p.packet_id)
-          match self.tcp.write(rec) {
-            Ok(_) => ()
-            Err(e) => return Err(e)
+          if pid_contains(self.inbound_qos2, p.packet_id) {
+            deliver = false
+          } else {
+            self.inbound_qos2.push(p.packet_id)
           }
-          // 等 PUBREL，回 PUBCOMP（MQTT §4.3.3 服务端侧流程）
-          match self.read_packet() {
-            Ok(@protocol.IncomingPacket::Pubrel(id)) if id == p.packet_id => {
-              let comp = @protocol.encode_pubcomp(p.packet_id)
-              match self.tcp.write(comp) {
-                Ok(_) => ()
-                Err(e) => return Err(e)
-              }
-            }
-            Ok(_) => return Err("expected PUBREL")
+          match self.tcp.write(@protocol.encode_pubrec(p.packet_id)) {
+            Ok(_) => ()
             Err(e) => return Err(e)
           }
         }
         @protocol.QoS::AtMostOnce => ()
       }
-      // topic 匹配派发
-      for reg in self.subs {
-        if @protocol.topic_matches(reg.filter, p.topic) {
-          (reg.handler)(p.topic, p.payload)
+      if deliver {
+        for reg in self.subs {
+          if @protocol.topic_matches(reg.filter, p.topic) {
+            (reg.handler)(p.topic, p.payload)
+          }
         }
       }
       Ok(true)
@@ -316,8 +349,14 @@ pub fn MqttClient::poll_once(self : MqttClient, timeout_ms : Int) -> Result[Bool
       self.store[0] = @session.on_pubcomp(self.store[0], id)
       Ok(true)
     }
-    // PUBREL 只在出站 QoS2 握手的同步路径里出现，poll 阶段兜底静默
-    @protocol.IncomingPacket::Pubrel(_) => Ok(true)
+    @protocol.IncomingPacket::Pubrel(id) => {
+      // 入站 QoS2 的第三步：清去重表并回 PUBCOMP。
+      self.inbound_qos2 = pid_without(self.inbound_qos2, id)
+      match self.tcp.write(@protocol.encode_pubcomp(id)) {
+        Ok(_) => Ok(true)
+        Err(e) => Err(e)
+      }
+    }
     // SUBACK/UNSUBACK/PINGRESP：同步握手已消化，静默
     @protocol.IncomingPacket::Suback(_) => Ok(true)
     @protocol.IncomingPacket::Unsuback(_) => Ok(true)
@@ -389,14 +428,19 @@ pub fn MqttClient::poll_loop(
 pub fn MqttClient::reconnect(self : MqttClient) -> Result[MqttClient, String] {
   let old_store = self.store[0]
   let old_subs = self.subs
+  // 先关旧 socket，避免每次重连泄漏一个 fd。
+  self.tcp.close()
   let c = match connect_opts(self.host, self.port, self.opts) {
     Ok(c) => c
     Err(e) => return Err(e)
   }
   c.set_session_store(old_store)
-  // session_present=false 时 broker 已清空中转，本地 replay 无意义；
-  // true 时按协议必须重发在途 QoS1/2 PUBLISH。
-  if c.is_session_present() {
+  // session_present=false 时 broker 已丢会话，本地在途表必须清空，
+  // 否则僵尸条目会在下一次重连被当作待重放帧发给 broker。
+  if !c.is_session_present() {
+    c.store[0] = @session.SessionStore::new()
+    c.inbound_qos2 = []
+  } else {
     let frames = c.replay_frames()
     for f in frames {
       match c.tcp.write(f) {
@@ -443,7 +487,7 @@ pub fn MqttClient::replay_frames(self : MqttClient) -> Array[Array[Int]] {
 pub fn MqttClient::read_packet(
   self : MqttClient
 ) -> Result[@protocol.IncomingPacket, String] {
-  match read_frame(self.tcp) {
+  match read_frame(self.tcp, read_timeout_ms()) {
     Ok(bytes) => @protocol.decode_packet(bytes)
     Err(e) => Err(e)
   }
@@ -466,10 +510,12 @@ fn return_code_desc(code : @protocol.ConnectReturnCode) -> String {
 }
 
 /// 从 TCP 读一帧 MQTT 报文：首字节 + 剩余长度变长 + 剩余字节。
-fn read_frame(tcp : @transport.TcpClient) -> Result[Array[Int], String] {
+fn read_frame(
+  tcp : @transport.TcpClient, timeout_ms : Int
+) -> Result[Array[Int], String] {
   let frame : Array[Int] = []
   // 首字节
-  match read_byte(tcp) {
+  match read_byte(tcp, timeout_ms) {
     Ok(b) => frame.push(b)
     Err(e) => return Err(e)
   }
@@ -478,7 +524,7 @@ fn read_frame(tcp : @transport.TcpClient) -> Result[Array[Int], String] {
   let mut mult = 1
   let mut cont = true
   while cont {
-    let b = match read_byte(tcp) {
+    let b = match read_byte(tcp, timeout_ms) {
       Ok(x) => x
       Err(e) => return Err(e)
     }
@@ -501,6 +547,11 @@ fn read_frame(tcp : @transport.TcpClient) -> Result[Array[Int], String] {
   let mut got = 0
   while got < rlen {
     let need = rlen - got
+    match tcp.wait_read(timeout_ms) {
+      Ok(false) => return Err("read timeout")
+      Ok(true) => ()
+      Err(e) => return Err(e)
+    }
     match tcp.read_some(need) {
       Ok(chunk) if chunk.length() > 0 => {
         for b in chunk {
@@ -516,7 +567,12 @@ fn read_frame(tcp : @transport.TcpClient) -> Result[Array[Int], String] {
 }
 
 /// 读单字节。
-fn read_byte(tcp : @transport.TcpClient) -> Result[Int, String] {
+fn read_byte(tcp : @transport.TcpClient, timeout_ms : Int) -> Result[Int, String] {
+  match tcp.wait_read(timeout_ms) {
+    Ok(false) => return Err("read timeout")
+    Ok(true) => ()
+    Err(e) => return Err(e)
+  }
   match tcp.read_some(1) {
     Ok(b) if b.length() > 0 => Ok(b[0])
     Ok(_) => Err("EOF")
@@ -525,13 +581,14 @@ fn read_byte(tcp : @transport.TcpClient) -> Result[Int, String] {
 }
 
 /// 校验 PUBLISH topic 是否符合 MQTT §3.3.1-3.3.2：
-/// 非空、长度 ≤65535 UTF-8 单元、不含 U+0000。
+/// 非空、UTF-8 字节长度 ≤65535、不含 U+0000。
 pub fn validate_publish_topic(topic : String) -> Result[Unit, String] {
-  if topic.length() == 0 {
+  let n = @protocol.utf8_encode(topic).length()
+  if n == 0 {
     return Err("empty topic")
   }
-  if topic.length() > 65535 {
-    return Err("topic too long (>65535 UTF-8 units)")
+  if n > 65535 {
+    return Err("topic too long (>65535 UTF-8 bytes)")
   }
   if topic.contains("\u{0000}") {
     return Err("topic contains NUL")

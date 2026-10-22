@@ -29,7 +29,6 @@ let g_opts : Array[@protocol.ConnectPacket?] = [None]
 let g_handler : Array[MessageHandler?] = [None]
 let g_connect : Array[ConnectHandler?] = [None]
 let g_suback : Array[SubackHandler?] = [None]
-let g_next_pid : Array[Int] = [1]
 
 /// 客户端句柄（实际状态在 g_* 全局，extern "js" 限制）。
 pub struct Client {
@@ -58,7 +57,6 @@ pub fn connect_opts(
   g_handler[0] = None
   g_connect[0] = None
   g_suback[0] = None
-  g_next_pid[0] = 1
   open_ws(url, connect_bytes)
   return Client::new()
 }
@@ -89,13 +87,22 @@ pub fn on_suback(_client : Client, handler : SubackHandler) -> Unit {
   g_suback[0] = Some(handler)
 }
 
-/// 订阅主题。
+/// 订阅主题。packet_id 与 core/session 共享，避免和 PUBLISH 撞号。
 pub fn subscribe(_client : Client, topic : String, qos : @protocol.QoS) -> Unit {
-  let pid = g_next_pid[0]
-  g_next_pid[0] = pid + 1
-  let sub = @protocol.Subscription::new(topic, qos)
-  let pkt = @protocol.SubscribePacket::new(pid, [sub])
-  browser_send(@protocol.encode_subscribe(pkt))
+  match g_core[0] {
+    Some(core) => {
+      let pid = core.allocate_control_packet_id()
+      g_core[0] = Some(core)
+      if pid == 0 {
+        println("[browser] subscribe: out of packet ids")
+        return
+      }
+      let sub = @protocol.Subscription::new(topic, qos)
+      let pkt = @protocol.SubscribePacket::new(pid, [sub])
+      browser_send(@protocol.encode_subscribe(pkt))
+    }
+    None => ()
+  }
 }
 
 /// 发布消息。QoS0/1/2 全部走 `@core.ClientCore::publish`：
@@ -118,8 +125,10 @@ pub fn publish(
 pub fn disconnect(_client : Client) -> Unit {
   match g_core[0] {
     Some(core) => {
+      mark_manual_close_ffi()
       let bytes = core.disconnect()
       browser_send(bytes)
+      close_ws_ffi()
       g_core[0] = None
       g_opts[0] = None
       g_handler[0] = None
@@ -139,22 +148,31 @@ pub fn browser_on_message(bytes : Array[Int]) -> Unit {
           for e in events {
             match e {
               @core.CoreEvent::ConnackReceived(c) => {
-                // 持久会话恢复：session_present=1 时把在途 QoS1/2 报文重放出去。
-                if c.session_present {
-                  let frames = core.replay_bytes()
-                  for f in frames {
-                    browser_send(f)
+                match c.return_code {
+                  @protocol.ConnectReturnCode::ConnectionAccepted => {
+                    if !c.session_present {
+                      // broker 已丢会话：清掉本地在途，避免僵尸重放。
+                      core.reset_session()
+                      println("[browser] session_present=0, local session reset")
+                    } else {
+                      let frames = core.replay_bytes()
+                      for f in frames {
+                        browser_send(f)
+                      }
+                      println(
+                        "[browser] session_present=1, replay " +
+                        frames.length().to_string() + " frame(s)",
+                      )
+                    }
+                    match g_connect[0] {
+                      Some(h) => h()
+                      None => ()
+                    }
                   }
-                  println(
-                    "[browser] session_present=1, replay " +
-                    frames.length().to_string() + " frame(s)",
-                  )
-                } else {
-                  println("[browser] session_present=0")
-                }
-                match g_connect[0] {
-                  Some(h) => h()
-                  None => ()
+                  _ => {
+                    println("[browser] CONNACK refused")
+                    core.on_transport_close()
+                  }
                 }
               }
               @core.CoreEvent::PublishReceived(p) => {
@@ -221,6 +239,7 @@ extern "js" fn open_ws_ffi(url : String, connect_bytes : FixedArray[Int]) -> Uni
   #|  let reconnectAttempts = 0;
   #|  const MAX_RECONNECT = 3;
   #|  function open() {
+  #|    if (typeof globalThis !== "undefined") { globalThis.moonMqttManualClose = false; }
   #|    console.log("[browser] connecting to " + url);
   #|    ws = new WebSocket(url, "mqtt");
   #|    ws.binaryType = "arraybuffer";
@@ -243,6 +262,10 @@ extern "js" fn open_ws_ffi(url : String, connect_bytes : FixedArray[Int]) -> Uni
   #|    };
   #|    ws.onclose = function() {
   #|      _M0FP38Duckweed11moon_2dmqtt7browser18browser__on__close();
+  #|      if (typeof globalThis !== "undefined" && globalThis.moonMqttManualClose) {
+  #|        console.log("[browser] manual close, no reconnect");
+  #|        return;
+  #|      }
   #|      if (reconnectAttempts < MAX_RECONNECT) {
   #|        reconnectAttempts = reconnectAttempts + 1;
   #|        console.log("[browser] reconnect attempt #" + reconnectAttempts + " in 1s");
@@ -253,17 +276,33 @@ extern "js" fn open_ws_ffi(url : String, connect_bytes : FixedArray[Int]) -> Uni
   #|  open();
   #|}
 
-/// 发送字节到 WebSocket。
+/// 发送字节到 WebSocket。未 OPEN 时丢弃并告警，避免抛 InvalidStateError。
 fn browser_send(bytes : Array[Int]) -> Unit {
   browser_send_ffi(to_fixed_array(bytes))
 }
 
+/// 标记这是一次主动断开：onclose 不再自动重连。
+extern "js" fn mark_manual_close_ffi() -> Unit =
+  #|() => {
+  #|  if (typeof globalThis !== "undefined") { globalThis.moonMqttManualClose = true; }
+  #|}
+
+/// 主动关闭 WebSocket。
+extern "js" fn close_ws_ffi() -> Unit =
+  #|() => {
+  #|  const ws = (typeof globalThis !== "undefined") ? globalThis.moonMQTTWs : null;
+  #|  if (ws) { try { ws.close(); } catch (e) {} }
+  #|}
+
 extern "js" fn browser_send_ffi(bytes : FixedArray[Int]) -> Unit =
   #|(bytes) => {
-  #|  if (typeof globalThis !== "undefined" && globalThis.moonMQTTWs) {
+  #|  const ws = (typeof globalThis !== "undefined") ? globalThis.moonMQTTWs : null;
+  #|  if (ws && ws.readyState === 1) {
   #|    const u8 = new Uint8Array(bytes.length);
   #|    for (let i = 0; i < bytes.length; i++) u8[i] = bytes[i];
-  #|    globalThis.moonMQTTWs.send(u8.buffer);
+  #|    ws.send(u8.buffer);
+  #|  } else {
+  #|    console.warn("[browser] socket not open, drop " + bytes.length + " bytes");
   #|  }
   #|}
 

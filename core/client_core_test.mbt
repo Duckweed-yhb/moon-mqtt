@@ -477,3 +477,57 @@ test "reconnect after outbound qos2 publish replays dup publish" {
   let _ = core.feed([0x70, 0x02, 0x00, 0x01])
   assert_eq(core.session().inflight_count(), 0)
 }
+
+test "connack refused stays disconnected" {
+  let core = @core.ClientCore::new(@protocol.ConnectPacket::new("core-test"))
+  let _ = core.start()
+  // return_code=4 BadUsernameOrPassword
+  let _ = core.feed([0x20, 0x02, 0x00, 0x04])
+  match core.state() {
+    @core.CoreState::Disconnected => ()
+    _ => fail("expected Disconnected after refused CONNACK")
+  }
+}
+
+test "inbound qos2 duplicate is delivered once" {
+  let core = @core.ClientCore::new(@protocol.ConnectPacket::new("core-test"))
+  let _ = core.feed([0x20, 0x02, 0x00, 0x00])
+  let pkt = @protocol.PublishPacket::new(
+    "a/b", [0x01], @protocol.qos2(), false, false, 7
+  )
+  let frame = @protocol.encode_publish(pkt)
+  match core.feed(frame) {
+    (events, outgoing) => {
+      assert_eq(events.length(), 1)
+      assert_eq(outgoing, [0x50, 0x02, 0x00, 0x07])
+    }
+  }
+  // 重复 PUBLISH：只回 PUBREC，不再派发
+  match core.feed(frame) {
+    (events, outgoing) => {
+      assert_eq(events.length(), 0)
+      assert_eq(outgoing, [0x50, 0x02, 0x00, 0x07])
+    }
+  }
+  // PUBREL → PUBCOMP，并清掉去重表
+  match core.feed([0x62, 0x02, 0x00, 0x07]) {
+    (_, outgoing) => assert_eq(outgoing, [0x70, 0x02, 0x00, 0x07])
+  }
+  // 握手完成后再来同 pid 的新 PUBLISH，应重新派发
+  match core.feed(frame) {
+    (events, _) => assert_eq(events.length(), 1)
+  }
+}
+
+test "unknown packet type reports actual type" {
+  let core = @core.ClientCore::new(@protocol.ConnectPacket::new("core-test"))
+  match core.feed([0xE0, 0x00]) {
+    (events, _) => {
+      assert_eq(events.length(), 1)
+      match events[0] {
+        @core.CoreEvent::UnknownPacketType(t) => assert_eq(t, 14)
+        _ => fail("expected UnknownPacketType")
+      }
+    }
+  }
+}

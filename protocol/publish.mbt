@@ -71,6 +71,9 @@ pub fn decode_publish(data : Array[Int]) -> Result[PublishPacket, String] {
       Err(e) => Err(e)
       Ok((rlen, p)) => {
         let end = p + rlen
+        if end > data.length() {
+          return Err("publish length exceeds data")
+        }
         let r = ByteReader::new(data)
         match r.read_string(p) {
           Err(e) => Err(e)

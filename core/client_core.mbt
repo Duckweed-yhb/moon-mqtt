@@ -1,3 +1,24 @@
+/// 入站 QoS2 去重：pids 里是否已有该 packet_id。
+fn inbound_pid_contains(pids : Array[Int], pid : Int) -> Bool {
+  for p in pids {
+    if p == pid {
+      return true
+    }
+  }
+  return false
+}
+
+/// 返回去掉指定 packet_id 的新数组（PUBREL 到达后调用）。
+fn inbound_pid_without(pids : Array[Int], pid : Int) -> Array[Int] {
+  let kept : Array[Int] = []
+  for p in pids {
+    if p != pid {
+      kept.push(p)
+    }
+  }
+  return kept
+}
+
 /// 客户端纯计算核心。
 ///
 /// B 方案：JS/C 胶水层持有 socket，MoonBit 导出纯函数：
@@ -48,6 +69,8 @@ pub struct ClientCore {
   framer : Framer
   mut pending_pings : Int
   mut session : @session.SessionStore
+  /// 入站 QoS2 尚未收到 PUBREL 的 packet_id，用于重复 PUBLISH 去重。
+  mut inbound_qos2 : Array[Int]
 }
 
 /// 构造核心：初始状态 = Connecting（等 CONNACK），SessionStore 为空。
@@ -58,6 +81,7 @@ pub fn ClientCore::new(opts : @protocol.ConnectPacket) -> ClientCore {
     framer: Framer::new(),
     pending_pings: 0,
     session: @session.SessionStore::new(),
+    inbound_qos2: [],
   }
 }
 
@@ -106,27 +130,38 @@ pub fn ClientCore::feed(
     match @protocol.decode_packet(frame) {
       Err(_) => {
         // 解不出来的帧抛 UnknownPacketType 事件，让胶水层记录。
-        events.push(CoreEvent::UnknownPacketType(0))
+        events.push(CoreEvent::UnknownPacketType(frame[0] >> 4))
       }
       Ok(pkt) => {
         match pkt {
           @protocol.IncomingPacket::Connack(c) => {
-            self.state = CoreState::Connected
+            // 只有 ConnectionAccepted 才进入 Connected；拒绝码停在 Disconnected。
+            self.state = match c.return_code {
+              @protocol.ConnectReturnCode::ConnectionAccepted => CoreState::Connected
+              _ => CoreState::Disconnected
+            }
             events.push(CoreEvent::ConnackReceived(c))
           }
           @protocol.IncomingPacket::Publish(p) => {
-            // 入站 PUBLISH：先派发事件，再按 QoS 自动回握手报文。
-            events.push(CoreEvent::PublishReceived(p))
+            // 入站 PUBLISH：QoS1 直接派发；QoS2 按 packet_id 去重，
+            // 首次派发并记入 inbound_qos2，重复 PUBLISH 只回 PUBREC。
+            let mut deliver = true
             match p.qos {
               @protocol.QoS::AtLeastOnce => {
-                // QoS1：回 PUBACK
                 append_bytes(outgoing, @protocol.encode_puback(p.packet_id))
               }
               @protocol.QoS::ExactlyOnce => {
-                // QoS2：回 PUBREC
+                if inbound_pid_contains(self.inbound_qos2, p.packet_id) {
+                  deliver = false
+                } else {
+                  self.inbound_qos2.push(p.packet_id)
+                }
                 append_bytes(outgoing, @protocol.encode_pubrec(p.packet_id))
               }
               _ => ()
+            }
+            if deliver {
+              events.push(CoreEvent::PublishReceived(p))
             }
           }
           @protocol.IncomingPacket::Suback(s) => {
@@ -154,7 +189,8 @@ pub fn ClientCore::feed(
           }
           @protocol.IncomingPacket::Pubrel(pid) => {
             // 入站 PUBREL：broker 对我们已回 PUBREC 的 QoS2 PUBLISH 的确认，
-            // 客户端必须回 PUBCOMP 完成握手。
+            // 客户端必须回 PUBCOMP 完成握手，并清掉去重表里的 pid。
+            self.inbound_qos2 = inbound_pid_without(self.inbound_qos2, pid)
             append_bytes(outgoing, @protocol.encode_pubcomp(pid))
           }
           @protocol.IncomingPacket::Pubcomp(pid) => {
@@ -181,6 +217,11 @@ pub fn ClientCore::feed(
 pub fn ClientCore::publish(
   self : ClientCore, topic : String, payload : Array[Int], qos : @protocol.QoS
 ) -> Array[Int] {
+  // 未收到 CONNACK(Accepted) 前不发 PUBLISH（§3.1.4）。
+  match self.state {
+    CoreState::Connected => ()
+    _ => return []
+  }
   let pkt = @protocol.PublishPacket::new(
     topic, payload, qos, false, false, 0
   )
@@ -192,10 +233,24 @@ pub fn ClientCore::publish(
       match @session.record_outbound(self.session, pkt) {
         (store, pid) => {
           self.session = store
+          if pid == 0 {
+            return []
+          }
           let with_pid = pkt.with_packet_id(pid)
           return @protocol.encode_publish(with_pid)
         }
       }
+    }
+  }
+}
+
+/// 分配一个控制报文 packet_id（SUBSCRIBE/UNSUBSCRIBE 用），
+/// 与 PUBLISH 共享 id 空间并跳过在途占用。
+pub fn ClientCore::allocate_control_packet_id(self : ClientCore) -> Int {
+  match @session.alloc_control_packet_id(self.session) {
+    (store, pid) => {
+      self.session = store
+      return pid
     }
   }
 }
@@ -205,6 +260,13 @@ pub fn ClientCore::publish(
 /// WaitPubcomp 重发 PUBREL。
 pub fn ClientCore::replay_bytes(self : ClientCore) -> Array[Array[Int]] {
   return @session.replay(self.session)
+}
+
+/// 清空会话状态：`session_present=false` 时调用，避免本地僵尸在途
+/// 在下次重连时被重放给已经丢会话的 broker。
+pub fn ClientCore::reset_session(self : ClientCore) -> Unit {
+  self.session = @session.SessionStore::new()
+  self.inbound_qos2 = []
 }
 
 /// 发出 PINGREQ：pending_pings += 1，返回编码字节。
@@ -250,6 +312,7 @@ pub fn ClientCore::disconnected(opts : @protocol.ConnectPacket) -> ClientCore {
     framer: Framer::new(),
     pending_pings: 0,
     session: @session.SessionStore::new(),
+    inbound_qos2: [],
   }
 }
 
@@ -264,5 +327,6 @@ pub fn ClientCore::with_session(
     framer: Framer::new(),
     pending_pings: 0,
     session,
+    inbound_qos2: [],
   }
 }

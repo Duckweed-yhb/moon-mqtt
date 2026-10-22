@@ -194,12 +194,13 @@ function _M0TPB8MutLocalGRPB5ArrayGiEE(param0) {
 function _M0TP38Duckweed11moon_2dmqtt4core6Framer(param0) {
   this.buf = param0;
 }
-function _M0TP38Duckweed11moon_2dmqtt4core10ClientCore(param0, param1, param2, param3, param4) {
+function _M0TP38Duckweed11moon_2dmqtt4core10ClientCore(param0, param1, param2, param3, param4, param5) {
   this.opts = param0;
   this.state = param1;
   this.framer = param2;
   this.pending_pings = param3;
   this.session = param4;
+  this.inbound_qos2 = param5;
 }
 function _M0DTP38Duckweed11moon_2dmqtt4core9CoreEvent15ConnackReceived(param0) {
   this._0 = param0;
@@ -225,6 +226,7 @@ const _M0FP38Duckweed11moon_2dmqtt7browser13open__ws__ffi = (url, connectBytes) 
   let reconnectAttempts = 0;
   const MAX_RECONNECT = 3;
   function open() {
+    if (typeof globalThis !== "undefined") { globalThis.moonMqttManualClose = false; }
     console.log("[browser] connecting to " + url);
     ws = new WebSocket(url, "mqtt");
     ws.binaryType = "arraybuffer";
@@ -247,6 +249,10 @@ const _M0FP38Duckweed11moon_2dmqtt7browser13open__ws__ffi = (url, connectBytes) 
     };
     ws.onclose = function() {
       _M0FP38Duckweed11moon_2dmqtt7browser18browser__on__close();
+      if (typeof globalThis !== "undefined" && globalThis.moonMqttManualClose) {
+        console.log("[browser] manual close, no reconnect");
+        return;
+      }
       if (reconnectAttempts < MAX_RECONNECT) {
         reconnectAttempts = reconnectAttempts + 1;
         console.log("[browser] reconnect attempt #" + reconnectAttempts + " in 1s");
@@ -265,10 +271,13 @@ function $oob() {
   throw new Error("Index out of bounds");
 }
 const _M0FP38Duckweed11moon_2dmqtt7browser18browser__send__ffi = (bytes) => {
-  if (typeof globalThis !== "undefined" && globalThis.moonMQTTWs) {
+  const ws = (typeof globalThis !== "undefined") ? globalThis.moonMQTTWs : null;
+  if (ws && ws.readyState === 1) {
     const u8 = new Uint8Array(bytes.length);
     for (let i = 0; i < bytes.length; i++) u8[i] = bytes[i];
-    globalThis.moonMQTTWs.send(u8.buffer);
+    ws.send(u8.buffer);
+  } else {
+    console.warn("[browser] socket not open, drop " + bytes.length + " bytes");
   }
 };
 const _M0FP48Duckweed11moon_2dmqtt8examples14browser_2ddemo16demo__client__id = () => "moon-demo-" + Math.random().toString(36).slice(2, 8);
@@ -277,7 +286,6 @@ const _M0FP38Duckweed11moon_2dmqtt7browser7g__opts = [undefined];
 const _M0FP38Duckweed11moon_2dmqtt7browser10g__handler = [undefined];
 const _M0FP38Duckweed11moon_2dmqtt7browser10g__connect = [undefined];
 const _M0FP38Duckweed11moon_2dmqtt7browser9g__suback = [undefined];
-const _M0FP38Duckweed11moon_2dmqtt7browser12g__next__pid = [1];
 function _M0MPC13int3Int16unsafe__to__char(self) {
   return self;
 }
@@ -311,11 +319,11 @@ function _M0FPB7printlnGsE(input) {
 function _M0MPC15array5Array28unsafe__truncate__to__lengthGiE(self, new_len) {
   _M0MPB7JSArray11set__length(self, new_len);
 }
-function _M0MPC15array5Array2atGiE(self, index) {
+function _M0MPC15array5Array2atGORP38Duckweed11moon_2dmqtt4core10ClientCoreE(self, index) {
   const len = self.length;
   return index >= 0 && index < len ? self[index] : $panic();
 }
-function _M0MPC15array5Array2atGORP38Duckweed11moon_2dmqtt4core10ClientCoreE(self, index) {
+function _M0MPC15array5Array2atGiE(self, index) {
   const len = self.length;
   return index >= 0 && index < len ? self[index] : $panic();
 }
@@ -329,37 +337,27 @@ function _M0MPC15array5Array3setGOWsRPB5ArrayGiEEuE(self, index, value) {
     return;
   }
 }
-function _M0MPC15array5Array3setGiE(self, index, value) {
-  const len = self.length;
-  if (index >= 0 && index < len) {
-    self[index] = value;
-    return;
-  } else {
-    $panic();
-    return;
-  }
-}
 function _M0MPC15array5Array5clearGiE(self) {
   _M0MPC15array5Array28unsafe__truncate__to__lengthGiE(self, 0);
 }
-function _M0IP38Duckweed11moon_2dmqtt8protocol3QoSPB2Eq5equal(_x_278, _x_279) {
-  switch (_x_278) {
+function _M0IP38Duckweed11moon_2dmqtt8protocol3QoSPB2Eq5equal(_x_282, _x_283) {
+  switch (_x_282) {
     case 0: {
-      if (_x_279 === 0) {
+      if (_x_283 === 0) {
         return true;
       } else {
         return false;
       }
     }
     case 1: {
-      if (_x_279 === 1) {
+      if (_x_283 === 1) {
         return true;
       } else {
         return false;
       }
     }
     default: {
-      if (_x_279 === 2) {
+      if (_x_283 === 2) {
         return true;
       } else {
         return false;
@@ -997,6 +995,9 @@ function _M0FP38Duckweed11moon_2dmqtt8protocol15decode__publish(data) {
     return new _M0DTPC16result6ResultGRP38Duckweed11moon_2dmqtt8protocol13PublishPacketsE3Err(e);
   }
   const end = p + rlen | 0;
+  if (end > data.length) {
+    return new _M0DTPC16result6ResultGRP38Duckweed11moon_2dmqtt8protocol13PublishPacketsE3Err("publish length exceeds data");
+  }
   const r = _M0MP38Duckweed11moon_2dmqtt8protocol10ByteReader3new(data);
   let topic;
   let p2;
@@ -1639,6 +1640,14 @@ function _M0FP38Duckweed11moon_2dmqtt7session16record__outbound(store, pkt) {
     return { _0: new _M0TP38Duckweed11moon_2dmqtt7session12SessionStore(inflight, next), _1: pid };
   }
 }
+function _M0FP38Duckweed11moon_2dmqtt7session26alloc__control__packet__id(store) {
+  const pid = _M0FP38Duckweed11moon_2dmqtt7session14next__free__id(store);
+  if (pid === 0) {
+    return { _0: store, _1: 0 };
+  }
+  const next = pid >= 65535 ? 1 : pid + 1 | 0;
+  return { _0: new _M0TP38Duckweed11moon_2dmqtt7session12SessionStore(store.inflight, next), _1: pid };
+}
 function _M0FP38Duckweed11moon_2dmqtt7session14remove__by__id(store, packet_id) {
   const out = [];
   const _bind = store.inflight;
@@ -1841,8 +1850,45 @@ function _M0MP38Duckweed11moon_2dmqtt4core6Framer4feed(self, bytes) {
   }
   return frames;
 }
+function _M0FP38Duckweed11moon_2dmqtt4core22inbound__pid__contains(pids, pid) {
+  const _bind = pids.length;
+  let _tmp = 0;
+  while (true) {
+    const _ = _tmp;
+    if (_ < _bind) {
+      const p = pids[_];
+      if (p === pid) {
+        return true;
+      }
+      _tmp = _ + 1 | 0;
+      continue;
+    } else {
+      break;
+    }
+  }
+  return false;
+}
+function _M0FP38Duckweed11moon_2dmqtt4core21inbound__pid__without(pids, pid) {
+  const kept = [];
+  const _bind = pids.length;
+  let _tmp = 0;
+  while (true) {
+    const _ = _tmp;
+    if (_ < _bind) {
+      const p = pids[_];
+      if (p !== pid) {
+        _M0MPC15array5Array4pushGiE(kept, p);
+      }
+      _tmp = _ + 1 | 0;
+      continue;
+    } else {
+      break;
+    }
+  }
+  return kept;
+}
 function _M0MP38Duckweed11moon_2dmqtt4core10ClientCore3new(opts) {
-  return new _M0TP38Duckweed11moon_2dmqtt4core10ClientCore(opts, 1, _M0MP38Duckweed11moon_2dmqtt4core6Framer3new(), 0, _M0MP38Duckweed11moon_2dmqtt7session12SessionStore3new());
+  return new _M0TP38Duckweed11moon_2dmqtt4core10ClientCore(opts, 1, _M0MP38Duckweed11moon_2dmqtt4core6Framer3new(), 0, _M0MP38Duckweed11moon_2dmqtt7session12SessionStore3new(), []);
 }
 function _M0MP38Duckweed11moon_2dmqtt4core10ClientCore5start(self) {
   return _M0FP38Duckweed11moon_2dmqtt8protocol15encode__connect(self.opts);
@@ -1877,7 +1923,7 @@ function _M0MP38Duckweed11moon_2dmqtt4core10ClientCore4feed(self, bytes) {
         _L$2: {
           const _bind$2 = _M0FP38Duckweed11moon_2dmqtt8protocol14decode__packet(frame);
           if (_bind$2.$tag === 0) {
-            _M0MPC15array5Array4pushGRP38Duckweed11moon_2dmqtt4core9CoreEventE(events, new _M0DTP38Duckweed11moon_2dmqtt4core9CoreEvent17UnknownPacketType(0));
+            _M0MPC15array5Array4pushGRP38Duckweed11moon_2dmqtt4core9CoreEventE(events, new _M0DTP38Duckweed11moon_2dmqtt4core9CoreEvent17UnknownPacketType(_M0MPC15array5Array2atGiE(frame, 0) >> 4));
           } else {
             const _Ok = _bind$2;
             const _pkt = _Ok._0;
@@ -1960,12 +2006,19 @@ function _M0MP38Duckweed11moon_2dmqtt4core10ClientCore4feed(self, bytes) {
                                     }
                                     break _L$15;
                                   }
-                                  self.state = 2;
+                                  const _bind$2 = c.return_code;
+                                  let _tmp$2;
+                                  if (_bind$2 === 0) {
+                                    _tmp$2 = 2;
+                                  } else {
+                                    _tmp$2 = 0;
+                                  }
+                                  self.state = _tmp$2;
                                   _M0MPC15array5Array4pushGRP38Duckweed11moon_2dmqtt4core9CoreEventE(events, new _M0DTP38Duckweed11moon_2dmqtt4core9CoreEvent15ConnackReceived(c));
                                 }
                                 break _L$13;
                               }
-                              _M0MPC15array5Array4pushGRP38Duckweed11moon_2dmqtt4core9CoreEventE(events, new _M0DTP38Duckweed11moon_2dmqtt4core9CoreEvent15PublishReceived(p));
+                              const deliver = new _M0TPB8MutLocalGbE(true);
                               const _bind$2 = p.qos;
                               switch (_bind$2) {
                                 case 1: {
@@ -1973,9 +2026,17 @@ function _M0MP38Duckweed11moon_2dmqtt4core10ClientCore4feed(self, bytes) {
                                   break;
                                 }
                                 case 2: {
+                                  if (_M0FP38Duckweed11moon_2dmqtt4core22inbound__pid__contains(self.inbound_qos2, p.packet_id)) {
+                                    deliver.val = false;
+                                  } else {
+                                    _M0MPC15array5Array4pushGiE(self.inbound_qos2, p.packet_id);
+                                  }
                                   _M0FP38Duckweed11moon_2dmqtt4core13append__bytes(outgoing, _M0FP38Duckweed11moon_2dmqtt8protocol14encode__pubrec(p.packet_id));
                                   break;
                                 }
+                              }
+                              if (deliver.val) {
+                                _M0MPC15array5Array4pushGRP38Duckweed11moon_2dmqtt4core9CoreEventE(events, new _M0DTP38Duckweed11moon_2dmqtt4core9CoreEvent15PublishReceived(p));
                               }
                             }
                             break _L$11;
@@ -2003,6 +2064,7 @@ function _M0MP38Duckweed11moon_2dmqtt4core10ClientCore4feed(self, bytes) {
                 }
                 break _L$5;
               }
+              self.inbound_qos2 = _M0FP38Duckweed11moon_2dmqtt4core21inbound__pid__without(self.inbound_qos2, pid$2);
               _M0FP38Duckweed11moon_2dmqtt4core13append__bytes(outgoing, _M0FP38Duckweed11moon_2dmqtt8protocol15encode__pubcomp(pid$2));
             }
             break _L$3;
@@ -2019,6 +2081,11 @@ function _M0MP38Duckweed11moon_2dmqtt4core10ClientCore4feed(self, bytes) {
   return { _0: events, _1: outgoing };
 }
 function _M0MP38Duckweed11moon_2dmqtt4core10ClientCore7publish(self, topic, payload, qos) {
+  const _bind = self.state;
+  if (_bind === 2) {
+  } else {
+    return [];
+  }
   const pkt = _M0MP38Duckweed11moon_2dmqtt8protocol13PublishPacket3new(topic, payload, qos, false, false, 0);
   if (qos === 0) {
     return _M0FP38Duckweed11moon_2dmqtt8protocol15encode__publish(pkt);
@@ -2026,20 +2093,41 @@ function _M0MP38Duckweed11moon_2dmqtt4core10ClientCore7publish(self, topic, payl
     let store;
     let pid;
     _L: {
-      const _bind = _M0FP38Duckweed11moon_2dmqtt7session16record__outbound(self.session, pkt);
-      const _store = _bind._0;
-      const _pid = _bind._1;
+      const _bind$2 = _M0FP38Duckweed11moon_2dmqtt7session16record__outbound(self.session, pkt);
+      const _store = _bind$2._0;
+      const _pid = _bind$2._1;
       store = _store;
       pid = _pid;
       break _L;
     }
     self.session = store;
+    if (pid === 0) {
+      return [];
+    }
     const with_pid = _M0MP38Duckweed11moon_2dmqtt8protocol13PublishPacket16with__packet__id(pkt, pid);
     return _M0FP38Duckweed11moon_2dmqtt8protocol15encode__publish(with_pid);
   }
 }
+function _M0MP38Duckweed11moon_2dmqtt4core10ClientCore29allocate__control__packet__id(self) {
+  let store;
+  let pid;
+  _L: {
+    const _bind = _M0FP38Duckweed11moon_2dmqtt7session26alloc__control__packet__id(self.session);
+    const _store = _bind._0;
+    const _pid = _bind._1;
+    store = _store;
+    pid = _pid;
+    break _L;
+  }
+  self.session = store;
+  return pid;
+}
 function _M0MP38Duckweed11moon_2dmqtt4core10ClientCore13replay__bytes(self) {
   return _M0FP38Duckweed11moon_2dmqtt7session6replay(self.session);
+}
+function _M0MP38Duckweed11moon_2dmqtt4core10ClientCore14reset__session(self) {
+  self.session = _M0MP38Duckweed11moon_2dmqtt7session12SessionStore3new();
+  self.inbound_qos2 = [];
 }
 function _M0MP38Duckweed11moon_2dmqtt4core10ClientCore20on__transport__close(self) {
   self.state = 0;
@@ -2085,7 +2173,6 @@ function _M0FP38Duckweed11moon_2dmqtt7browser13connect__opts(host, port, opts) {
   _M0MPC15array5Array3setGOWsRPB5ArrayGiEEuE(_M0FP38Duckweed11moon_2dmqtt7browser10g__handler, 0, undefined);
   _M0MPC15array5Array3setGOWsRPB5ArrayGiEEuE(_M0FP38Duckweed11moon_2dmqtt7browser10g__connect, 0, undefined);
   _M0MPC15array5Array3setGOWsRPB5ArrayGiEEuE(_M0FP38Duckweed11moon_2dmqtt7browser9g__suback, 0, undefined);
-  _M0MPC15array5Array3setGiE(_M0FP38Duckweed11moon_2dmqtt7browser12g__next__pid, 0, 1);
   _M0FP38Duckweed11moon_2dmqtt7browser8open__ws(url, connect_bytes);
   _M0MP38Duckweed11moon_2dmqtt7browser6Client3new();
 }
@@ -2105,8 +2192,24 @@ function _M0FP38Duckweed11moon_2dmqtt7browser13browser__send(bytes) {
   _M0FP38Duckweed11moon_2dmqtt7browser18browser__send__ffi(_M0FP38Duckweed11moon_2dmqtt7browser16to__fixed__array(bytes));
 }
 function _M0FP38Duckweed11moon_2dmqtt7browser9subscribe(_client, topic, qos) {
-  const pid = _M0MPC15array5Array2atGiE(_M0FP38Duckweed11moon_2dmqtt7browser12g__next__pid, 0);
-  _M0MPC15array5Array3setGiE(_M0FP38Duckweed11moon_2dmqtt7browser12g__next__pid, 0, pid + 1 | 0);
+  let core;
+  _L: {
+    const _bind = _M0MPC15array5Array2atGORP38Duckweed11moon_2dmqtt4core10ClientCoreE(_M0FP38Duckweed11moon_2dmqtt7browser7g__core, 0);
+    if (_bind === undefined) {
+      return;
+    } else {
+      const _Some = _bind;
+      const _core = _Some;
+      core = _core;
+      break _L;
+    }
+  }
+  const pid = _M0MP38Duckweed11moon_2dmqtt4core10ClientCore29allocate__control__packet__id(core);
+  _M0MPC15array5Array3setGOWsRPB5ArrayGiEEuE(_M0FP38Duckweed11moon_2dmqtt7browser7g__core, 0, core);
+  if (pid === 0) {
+    _M0FPB7printlnGsE("[browser] subscribe: out of packet ids");
+    return undefined;
+  }
   const sub = _M0MP38Duckweed11moon_2dmqtt8protocol12Subscription3new(topic, qos);
   const pkt = _M0MP38Duckweed11moon_2dmqtt8protocol15SubscribePacket3new(pid, [sub]);
   _M0FP38Duckweed11moon_2dmqtt7browser13browser__send(_M0FP38Duckweed11moon_2dmqtt8protocol17encode__subscribe(pkt));
@@ -2198,39 +2301,46 @@ function _M0FP38Duckweed11moon_2dmqtt7browser20browser__on__message(bytes) {
               }
               break _L$5;
             }
-            if (c.session_present) {
-              const frames = _M0MP38Duckweed11moon_2dmqtt4core10ClientCore13replay__bytes(core);
-              const _bind$2 = frames.length;
-              let _tmp$2 = 0;
-              while (true) {
-                const _$2 = _tmp$2;
-                if (_$2 < _bind$2) {
-                  const f = frames[_$2];
-                  _M0FP38Duckweed11moon_2dmqtt7browser13browser__send(f);
-                  _tmp$2 = _$2 + 1 | 0;
-                  continue;
-                } else {
-                  break;
+            const _bind$2 = c.return_code;
+            if (_bind$2 === 0) {
+              if (!c.session_present) {
+                _M0MP38Duckweed11moon_2dmqtt4core10ClientCore14reset__session(core);
+                _M0FPB7printlnGsE("[browser] session_present=0, local session reset");
+              } else {
+                const frames = _M0MP38Duckweed11moon_2dmqtt4core10ClientCore13replay__bytes(core);
+                const _bind$3 = frames.length;
+                let _tmp$2 = 0;
+                while (true) {
+                  const _$2 = _tmp$2;
+                  if (_$2 < _bind$3) {
+                    const f = frames[_$2];
+                    _M0FP38Duckweed11moon_2dmqtt7browser13browser__send(f);
+                    _tmp$2 = _$2 + 1 | 0;
+                    continue;
+                  } else {
+                    break;
+                  }
                 }
+                _M0FPB7printlnGsE(`[browser] session_present=1, replay ${_M0MPC13int3Int18to__string_2einner(frames.length, 10)} frame(s)`);
               }
-              _M0FPB7printlnGsE(`[browser] session_present=1, replay ${_M0MPC13int3Int18to__string_2einner(frames.length, 10)} frame(s)`);
+              let h;
+              _L$7: {
+                _L$8: {
+                  const _bind$3 = _M0MPC15array5Array2atGORP38Duckweed11moon_2dmqtt4core10ClientCoreE(_M0FP38Duckweed11moon_2dmqtt7browser10g__connect, 0);
+                  if (_bind$3 === undefined) {
+                  } else {
+                    const _Some = _bind$3;
+                    const _h = _Some;
+                    h = _h;
+                    break _L$8;
+                  }
+                  break _L$7;
+                }
+                h();
+              }
             } else {
-              _M0FPB7printlnGsE("[browser] session_present=0");
-            }
-            let h;
-            _L$7: {
-              _L$8: {
-                const _bind$2 = _M0MPC15array5Array2atGORP38Duckweed11moon_2dmqtt4core10ClientCoreE(_M0FP38Duckweed11moon_2dmqtt7browser10g__connect, 0);
-                if (_bind$2 === undefined) {
-                } else {
-                  const _Some = _bind$2;
-                  const _h = _Some;
-                  h = _h;
-                  break _L$8;
-                }
-                break _L$7;
-              }
-              h();
+              _M0FPB7printlnGsE("[browser] CONNACK refused");
+              _M0MP38Duckweed11moon_2dmqtt4core10ClientCore20on__transport__close(core);
             }
           }
           break _L$3;

@@ -5,7 +5,25 @@
 /// - 其余层级按字面精确匹配
 
 pub fn topic_matches(filter : String, topic : String) -> Bool {
+  // §4.7.2：通配符不匹配 $ 开头的系统主题（$SYS/...）。
+  if topic.has_prefix("$") && (filter.has_prefix("#") || filter.has_prefix("+")) {
+    return false
+  }
   let f = filter.split("/").to_array()
+  // 过滤器合法性：'+' 必须独占一层，'#' 只能出现在最后一层。
+  for i in 0..<f.length() {
+    let seg = f[i]
+    if seg == "#" {
+      if i != f.length() - 1 {
+        return false
+      }
+    } else if seg.contains("#") {
+      return false
+    }
+    if seg != "+" && seg.contains("+") {
+      return false
+    }
+  }
   let t = topic.split("/").to_array()
   let mut fi = 0
   let mut ti = 0
@@ -54,4 +72,15 @@ test "multi level hash" {
 test "combined plus and hash" {
   assert_eq(topic_matches("a/+/b/#", "a/x/b/y/z"), true)
   assert_eq(topic_matches("a/+/b/#", "a/x/c/y"), false)
+}
+
+test "wildcards do not match $ topics" {
+  assert_eq(topic_matches("#", "$SYS/broker"), false)
+  assert_eq(topic_matches("+/broker", "$SYS/broker"), false)
+  assert_eq(topic_matches("$SYS/#", "$SYS/broker"), true)
+}
+
+test "invalid filters are rejected" {
+  assert_eq(topic_matches("a/#/b", "a/x/b"), false)
+  assert_eq(topic_matches("a/x+", "a/xy"), false)
 }

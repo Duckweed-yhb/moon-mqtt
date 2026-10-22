@@ -29,6 +29,10 @@ jobs:
       - name: Check
         run: moon check
 
+      # JS FFI 边界用 FixedArray，js 目标必须 0 警告；用 --deny-warn 固化。
+      - name: Check (js, deny warnings)
+        run: moon check --target js --deny-warn
+
       # 独立 build 步骤（验收第 5 条：构建覆盖）。
       # 四个后端逐一构建，与下方 test 矩阵对齐；本地 wasm/js bundle 缺失
       # 是本机 core 预编译产物问题，CI 上四后端均为绿。
@@ -40,6 +44,13 @@ jobs:
 
       - name: Build (js)
         run: moon build --target js
+
+      # 浏览器 demo 产物：两条 js executable 都必须能构建。
+      - name: Build browser demo (js)
+        run: moon build --target js examples/browser-demo
+
+      - name: Build ws-spike (js)
+        run: moon build --target js examples/ws-spike
 
       - name: Build (native)
         run: moon build --target native

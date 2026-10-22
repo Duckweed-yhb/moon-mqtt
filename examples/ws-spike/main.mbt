@@ -202,7 +202,16 @@ pub fn spike_reconnect_bytes() -> Array[Int] {
 // - 新 onopen 时调 spike_reconnect_bytes() 拿新 CONNECT 字节（core 已切回 Connecting）；
 // - 重连后收到新 CONNACK，feed() 检测到 ConnackReceived 会再次自动 SUBSCRIBE；
 // - 重连次数在 JS 闭包里计数，spike 阶段限 3 次，超过不再重连。
-extern "js" fn run_ws_spike(connect_bytes : Array[Int]) -> Unit =
+/// 把 Array[Int] 转成 FixedArray[Int]（JS FFI 边界要求 FixedArray）。
+fn to_fixed_array(arr : Array[Int]) -> FixedArray[Int] {
+  let out = FixedArray::make(arr.length(), 0)
+  for i in 0..<arr.length() {
+    out[i] = arr[i]
+  }
+  return out
+}
+
+extern "js" fn run_ws_spike(connect_bytes : FixedArray[Int]) -> Unit =
   #|(connectBytes) => {
   #|  const url = "wss://broker.emqx.io:8084/mqtt";
   #|  let initialBytes = connectBytes;
@@ -304,7 +313,7 @@ fn main() -> Unit {
         "[spike] core start() generated CONNECT, " + connect_bytes.length().to_string() + " bytes"
       )
       g_core[0] = Some(core)
-      run_ws_spike(connect_bytes)
+      run_ws_spike(to_fixed_array(connect_bytes))
     }
   }
 }

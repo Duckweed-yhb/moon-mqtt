@@ -20,11 +20,15 @@ pub type MessageHandler = (String, Array[Int]) -> Unit
 /// 连接成功（收到 CONNACK）时的回调。
 pub type ConnectHandler = () -> Unit
 
+/// 订阅成功（收到 SUBACK）时的回调。在这个回调里发布，能保证 broker 已建立订阅。
+pub type SubackHandler = () -> Unit
+
 // 全局状态（extern "js" 不支持函数类型参数，MoonBit 顶层不支持 let mut）
 let g_core : Array[@core.ClientCore?] = [None]
 let g_opts : Array[@protocol.ConnectPacket?] = [None]
 let g_handler : Array[MessageHandler?] = [None]
 let g_connect : Array[ConnectHandler?] = [None]
+let g_suback : Array[SubackHandler?] = [None]
 let g_next_pid : Array[Int] = [1]
 
 /// 客户端句柄（实际状态在 g_* 全局，extern "js" 限制）。
@@ -36,20 +40,37 @@ pub fn Client::new() -> Client {
   return Client::{}
 }
 
-/// 连接到 MQTT broker（通过 WebSocket）。
+/// 连接到 MQTT broker（通过 WebSocket），clean_session=true。
 /// host 例："broker.emqx.io"，port 例：8084。
 pub fn connect(host : String, port : Int, client_id : String) -> Client {
+  connect_opts(host, port, @protocol.ConnectPacket::new(client_id))
+}
+
+/// 连接到 MQTT broker，使用自定义 CONNECT 参数（可带 clean_session=false / 认证 / 遗嘱）。
+pub fn connect_opts(
+  host : String, port : Int, opts : @protocol.ConnectPacket,
+) -> Client {
   let url = "wss://" + host + ":" + port.to_string() + "/mqtt"
-  let opts = @protocol.ConnectPacket::new(client_id)
   g_opts[0] = Some(opts)
   let core = @core.ClientCore::new(opts)
   let connect_bytes = core.start()
   g_core[0] = Some(core)
   g_handler[0] = None
   g_connect[0] = None
+  g_suback[0] = None
   g_next_pid[0] = 1
   open_ws(url, connect_bytes)
   return Client::new()
+}
+
+/// 持久会话连接（clean_session=false）：断线重连后 broker 保留会话，
+/// CONNACK 的 session_present=1，core 会把在途 QoS1/2 报文 replay 出去。
+pub fn connect_persistent(host : String, port : Int, client_id : String) -> Client {
+  connect_opts(
+    host,
+    port,
+    @protocol.ConnectPacket::new(client_id).with_clean_session(false),
+  )
 }
 
 /// 注册收到 PUBLISH 消息时的回调。
@@ -63,6 +84,11 @@ pub fn on_connect(_client : Client, handler : ConnectHandler) -> Unit {
   g_connect[0] = Some(handler)
 }
 
+/// 注册订阅成功（收到 SUBACK）时的回调。
+pub fn on_suback(_client : Client, handler : SubackHandler) -> Unit {
+  g_suback[0] = Some(handler)
+}
+
 /// 订阅主题。
 pub fn subscribe(_client : Client, topic : String, qos : @protocol.QoS) -> Unit {
   let pid = g_next_pid[0]
@@ -72,10 +98,20 @@ pub fn subscribe(_client : Client, topic : String, qos : @protocol.QoS) -> Unit 
   browser_send(@protocol.encode_subscribe(pkt))
 }
 
-/// 发布消息。QoS0 完整支持；QoS1/2 出站握手接入留后续。
-pub fn publish(_client : Client, topic : String, payload : Array[Int], qos : @protocol.QoS) -> Unit {
-  let pkt = @protocol.PublishPacket::new(topic, payload, qos, false, false, 0)
-  browser_send(@protocol.encode_publish(pkt))
+/// 发布消息。QoS0/1/2 全部走 `@core.ClientCore::publish`：
+/// QoS1/2 自动分配 packet_id 并记入在途，PUBACK / PUBREC→PUBREL→PUBCOMP
+/// 由 `browser_on_message` 里的 `core.feed()` 自动推进。
+pub fn publish(
+  _client : Client, topic : String, payload : Array[Int], qos : @protocol.QoS,
+) -> Unit {
+  match g_core[0] {
+    Some(core) => {
+      let bytes = core.publish(topic, payload, qos)
+      g_core[0] = Some(core)
+      browser_send(bytes)
+    }
+    None => ()
+  }
 }
 
 /// 断开连接。
@@ -102,7 +138,20 @@ pub fn browser_on_message(bytes : Array[Int]) -> Unit {
         (events, outgoing) => {
           for e in events {
             match e {
-              @core.CoreEvent::ConnackReceived(_) => {
+              @core.CoreEvent::ConnackReceived(c) => {
+                // 持久会话恢复：session_present=1 时把在途 QoS1/2 报文重放出去。
+                if c.session_present {
+                  let frames = core.replay_bytes()
+                  for f in frames {
+                    browser_send(f)
+                  }
+                  println(
+                    "[browser] session_present=1, replay " +
+                    frames.length().to_string() + " frame(s)",
+                  )
+                } else {
+                  println("[browser] session_present=0")
+                }
                 match g_connect[0] {
                   Some(h) => h()
                   None => ()
@@ -111,6 +160,13 @@ pub fn browser_on_message(bytes : Array[Int]) -> Unit {
               @core.CoreEvent::PublishReceived(p) => {
                 match g_handler[0] {
                   Some(h) => h(p.topic, p.payload)
+                  None => ()
+                }
+              }
+              @core.CoreEvent::SubackReceived(_) => {
+                println("[browser] suback")
+                match g_suback[0] {
+                  Some(h) => h()
                   None => ()
                 }
               }
@@ -144,9 +200,22 @@ pub fn browser_on_close() -> Unit {
 
 // ---------- extern "js" ----------
 
+/// 把 Array[Int] 转成 FixedArray[Int]（JS FFI 边界要求 FixedArray）。
+fn to_fixed_array(arr : Array[Int]) -> FixedArray[Int] {
+  let out = FixedArray::make(arr.length(), 0)
+  for i in 0..<arr.length() {
+    out[i] = arr[i]
+  }
+  return out
+}
+
 /// 打开 WebSocket，onopen 时发送 connect_bytes。
 /// onmessage / onclose 由 JS 回调到 browser_on_message / browser_on_close。
-extern "js" fn open_ws(url : String, connect_bytes : Array[Int]) -> Unit =
+fn open_ws(url : String, connect_bytes : Array[Int]) -> Unit {
+  open_ws_ffi(url, to_fixed_array(connect_bytes))
+}
+
+extern "js" fn open_ws_ffi(url : String, connect_bytes : FixedArray[Int]) -> Unit =
   #|(url, connectBytes) => {
   #|  let ws = null;
   #|  let reconnectAttempts = 0;
@@ -185,7 +254,11 @@ extern "js" fn open_ws(url : String, connect_bytes : Array[Int]) -> Unit =
   #|}
 
 /// 发送字节到 WebSocket。
-extern "js" fn browser_send(bytes : Array[Int]) -> Unit =
+fn browser_send(bytes : Array[Int]) -> Unit {
+  browser_send_ffi(to_fixed_array(bytes))
+}
+
+extern "js" fn browser_send_ffi(bytes : FixedArray[Int]) -> Unit =
   #|(bytes) => {
   #|  if (typeof globalThis !== "undefined" && globalThis.moonMQTTWs) {
   #|    const u8 = new Uint8Array(bytes.length);

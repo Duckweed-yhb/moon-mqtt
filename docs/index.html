@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>moon-mqtt · 浏览器 Demo 入口</title>
+<style>
+  :root {
+    --bg: #0f1117; --panel: #161a23; --line: #262d3a; --fg: #e6e9ef;
+    --muted: #8b95a7; --accent: #4ec9b0; --blue: #6cb6ff; --amber: #e0af68;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body {
+    background: var(--bg); color: var(--fg); padding: 28px 20px 48px;
+    font: 14px/1.65 -apple-system, "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
+  }
+  .wrap { max-width: 900px; margin: 0 auto; }
+  h1 { font-size: 22px; margin: 0 0 6px; letter-spacing: .2px; }
+  h1 code { color: var(--accent); }
+  .lead { margin: 0 0 26px; color: var(--muted); font-size: 13.5px; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  @media (max-width: 760px) { .grid { grid-template-columns: 1fr; } }
+  a.card {
+    display: block; border: 1px solid var(--line); border-radius: 12px;
+    background: var(--panel); padding: 18px 18px 16px; text-decoration: none;
+    color: var(--fg); transition: border-color .15s, transform .15s;
+  }
+  a.card:hover { border-color: #3a4557; transform: translateY(-1px); }
+  .card .kicker { font-size: 11.5px; letter-spacing: .12em; text-transform: uppercase; color: var(--accent); }
+  .card h2 { font-size: 16px; margin: 6px 0 8px; }
+  .card p { margin: 0 0 10px; color: var(--muted); font-size: 13px; }
+  .card .go { font-size: 12.5px; color: var(--blue); font-family: ui-monospace, Consolas, monospace; }
+  .card.spike .kicker { color: var(--amber); }
+  section { margin-top: 30px; }
+  h3 { font-size: 14.5px; margin: 0 0 10px; }
+  pre {
+    background: #0b0e14; border: 1px solid var(--line); border-radius: 10px;
+    padding: 14px 16px; overflow-x: auto; margin: 0 0 12px;
+    font: 12.5px/1.7 ui-monospace, Consolas, "Cascadia Mono", monospace; color: #cfd6e4;
+  }
+  pre b { color: var(--accent); font-weight: 600; }
+  .note { color: var(--muted); font-size: 13px; margin: 0 0 8px; }
+  ul.links { list-style: none; padding: 0; margin: 0; display: flex; flex-wrap: wrap; gap: 8px; }
+  ul.links a {
+    color: var(--fg); text-decoration: none; font-size: 12.5px;
+    border: 1px solid var(--line); border-radius: 8px; padding: 7px 11px;
+  }
+  ul.links a:hover { border-color: #3a4557; }
+  code.inline { background: #0b0e14; border: 1px solid var(--line); border-radius: 5px; padding: 1px 5px; font-size: 12px; }
+  footer { margin-top: 34px; color: #6b7486; font-size: 12px; border-top: 1px solid var(--line); padding-top: 14px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1><code>moon-mqtt</code> · 浏览器 Demo 入口</h1>
+  <p class="lead">
+    纯 MoonBit 实现的 MQTT 3.1.1 客户端（<code class="inline">protocol</code> / <code class="inline">session</code> / <code class="inline">core</code> + 浏览器胶水层），
+    编译成 JS 后在浏览器里通过 WebSocket 连接公共 EMQX broker。下面两个页面直接引用已构建好的 <code class="inline">.js</code> 产物，不需要本地构建。
+  </p>
+
+  <div class="grid">
+    <a class="card" href="demo/">
+      <div class="kicker">Demo</div>
+      <h2>浏览器 MQTT 客户端</h2>
+      <p>连接 <code class="inline">broker.emqx.io:8084</code>，订阅 <code class="inline">sensors/#</code>，收到 SUBACK 后自动发一条 QoS1。带实时状态行、消息列表和完整控制台日志。</p>
+      <div class="go">→ demo/</div>
+    </a>
+    <a class="card spike" href="demo/ws-spike.html">
+      <div class="kicker">Spike</div>
+      <h2>QoS2 + 自动重连</h2>
+      <p>看 PUBLISH → PUBREC → PUBREL → PUBCOMP 四步握手，以及断线后 1 秒自动重连、重连后重新 CONNECT + 重新订阅的完整字节流。</p>
+      <div class="go">→ demo/ws-spike.html</div>
+    </a>
+  </div>
+
+  <section>
+    <h3>本地怎么跑</h3>
+    <p class="note">在<strong>仓库根目录</strong>起一个静态服务器，然后打开对应地址（不要直接双击 html：<code class="inline">file://</code> 下不同浏览器对 WebSocket 的策略不一致）。</p>
+    <pre><b>cd</b> moon-mqtt
+<b>python</b> -m http.server 8765
+<b>#</b> 浏览器打开 http://127.0.0.1:8765/docs/demo/
+<b>#</b> spike 页：http://127.0.0.1:8765/docs/demo/ws-spike.html</pre>
+    <p class="note">开启 GitHub Pages（站点根设为 <code class="inline">/docs</code>）后的地址：<a href="https://duckweed-yhb.github.io/moon-mqtt/demo/" style="color:var(--blue)">https://duckweed-yhb.github.io/moon-mqtt/demo/</a>。Pages 尚未开启时，用上面的本地服务器地址。</p>
+  </section>
+
+  <section>
+    <h3>重新构建产物</h3>
+    <p class="note">改了 MoonBit 源码后，在仓库根目录跑：</p>
+    <pre><b>pwsh</b> -File scripts/build-demo.ps1</pre>
+    <p class="note">脚本会依次构建 <code class="inline">examples/browser-demo</code> 与 <code class="inline">examples/ws-spike</code>，并把 JS 产物复制到 <code class="inline">docs/demo/</code>。</p>
+  </section>
+
+  <section>
+    <h3>相关文档</h3>
+    <ul class="links">
+      <li><a href="https://github.com/Duckweed-yhb/moon-mqtt">GitHub 仓库</a></li>
+      <li><a href="https://github.com/Duckweed-yhb/moon-mqtt/blob/main/docs/WS-SPIKE.md">WebSocket Spike 记录（QoS2 / 重连实测）</a></li>
+      <li><a href="https://github.com/Duckweed-yhb/moon-mqtt/blob/main/docs/ARCHITECTURE.md">架构说明</a></li>
+      <li><a href="https://github.com/Duckweed-yhb/moon-mqtt/blob/main/README.md">README</a></li>
+    </ul>
+  </section>
+
+  <footer>
+    moon-mqtt · MoonBit MQTT 3.1.1 客户端 · demo 产物随仓库提交，GitHub Pages 直接从 <code class="inline">/docs</code> 托管。
+  </footer>
+
+</div>
+</body>
+</html>

@@ -1,0 +1,389 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>moon-mqtt · QoS2 + 自动重连 Spike</title>
+<style>
+  :root {
+    --bg: #0f1117; --panel: #161a23; --panel2: #1b202b; --line: #262d3a;
+    --fg: #e6e9ef; --muted: #8b95a7; --accent: #4ec9b0; --blue: #6cb6ff;
+    --amber: #e0af68; --red: #f7768e; --green: #55d187;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body {
+    background: var(--bg); color: var(--fg); padding: 18px 18px 40px;
+    font: 14px/1.6 -apple-system, "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
+  }
+  .wrap { max-width: 1180px; margin: 0 auto; }
+
+  /* 顶部 spike 横幅 */
+  .banner {
+    border: 1px solid #4a3c22; background: linear-gradient(180deg, #211b12, #1a1712);
+    border-radius: 10px; padding: 12px 15px; margin-bottom: 12px;
+    display: flex; gap: 12px; align-items: flex-start;
+  }
+  .tag {
+    flex: none; font: 11px/1 ui-monospace, Consolas, monospace; letter-spacing: .1em;
+    background: #3a2f18; color: var(--amber); border: 1px solid #5a4726;
+    border-radius: 5px; padding: 6px 8px;
+  }
+  .banner h1 { font-size: 16.5px; margin: 0 0 3px; }
+  .banner h1 em { color: var(--amber); font-style: normal; }
+  .banner p { margin: 0; color: #bfae90; font-size: 12.5px; }
+
+  header.topline { display: flex; justify-content: flex-end; margin-bottom: 8px; }
+  .back {
+    color: var(--muted); text-decoration: none; font-size: 12.5px; white-space: nowrap;
+    border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px;
+  }
+  .back:hover { color: var(--fg); border-color: #3a4557; }
+
+  .statusbar {
+    display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+    background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+    padding: 10px 14px; margin-bottom: 12px;
+  }
+  .dot { width: 9px; height: 9px; border-radius: 50%; background: #57606f; flex: none; }
+  .dot.busy { background: var(--amber); animation: pulse 1.1s ease-in-out infinite; }
+  .dot.warn { background: var(--amber); animation: pulse 1.1s ease-in-out infinite; }
+  .dot.ok { background: var(--green); }
+  .dot.err { background: var(--red); }
+  @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: .28; } }
+  .stat { font-weight: 600; font-size: 13.5px; }
+  .stat.busy, .stat.warn { color: var(--amber); }
+  .stat.ok { color: var(--green); }
+  .stat.err { color: var(--red); }
+  .spacer { flex: 1; }
+  .chip {
+    font: 11.5px/1 ui-monospace, Consolas, monospace; color: var(--muted);
+    border: 1px solid var(--line); border-radius: 999px; padding: 5px 9px;
+  }
+  .chip b { color: var(--accent); font-weight: 600; }
+
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 13px 15px; margin-bottom: 12px; }
+  .card h2 { font-size: 12.5px; margin: 0 0 8px; color: var(--accent); letter-spacing: .04em; }
+  .card ul { margin: 0; padding-left: 18px; color: #c8cfdb; font-size: 13px; }
+  .card li { margin: 3px 0; }
+  code {
+    background: #0b0e14; border: 1px solid var(--line); border-radius: 5px;
+    padding: 1px 5px; font: 12.5px/1.4 ui-monospace, Consolas, monospace; color: var(--blue);
+  }
+  .legend { display: grid; grid-template-columns: repeat(auto-fit, minmax(215px, 1fr)); gap: 6px 16px; margin-top: 4px; }
+  .legend div { font-size: 12.5px; color: #c8cfdb; }
+  .legend span.h { color: var(--accent); font-family: ui-monospace, Consolas, monospace; }
+
+  .toolbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+  button {
+    font: 13px/1 inherit; font-family: inherit; cursor: pointer; border-radius: 8px;
+    padding: 9px 14px; border: 1px solid #8a6a2a; background: #4a3a17; color: #ffe6b8;
+  }
+  button:hover { background: #5c4a1e; }
+  button.ghost { background: transparent; border-color: var(--line); color: var(--muted); }
+  button.ghost:hover { background: var(--panel2); color: var(--fg); }
+  .toolbar .note { color: var(--muted); font-size: 12.5px; margin-left: auto; }
+
+  .pane { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+  .pane > h3 {
+    margin: 0; padding: 10px 13px; font-size: 12.5px; font-weight: 600; color: var(--muted);
+    border-bottom: 1px solid var(--line); display: flex; justify-content: space-between; align-items: center;
+  }
+  .pane > h3 .num { color: var(--amber); font-family: ui-monospace, Consolas, monospace; font-size: 11.5px; }
+  #log {
+    height: 56vh; min-height: 300px; overflow-y: auto; padding: 10px 12px;
+    font: 12px/1.7 ui-monospace, Consolas, "Cascadia Mono", monospace; background: #0b0e14;
+  }
+  #log .line { display: flex; gap: 8px; white-space: pre-wrap; word-break: break-word; }
+  #log .t { color: #495264; flex: none; }
+  #log .m { color: #cfd6e4; }
+  #log .line.good .m { color: var(--green); }
+  #log .line.qos2 .m { color: var(--amber); }
+  #log .line.warn .m { color: var(--amber); }
+  #log .line.error .m { color: var(--red); }
+
+  details { margin-top: 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); }
+  details summary { cursor: pointer; padding: 11px 14px; font-size: 12.5px; color: var(--muted); }
+  details .body { padding: 0 14px 14px; color: #c8cfdb; font-size: 13px; }
+  details pre {
+    background: #0b0e14; border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px;
+    overflow-x: auto; font: 12px/1.7 ui-monospace, Consolas, monospace; color: #cfd6e4; margin: 8px 0 12px;
+  }
+  details ol { margin: 0; padding-left: 20px; }
+  details li { margin: 5px 0; }
+  footer { margin-top: 18px; color: #5d6675; font-size: 12px; }
+  footer a { color: var(--muted); }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="topline">
+    <a class="back" href="../index.html">← 返回目录</a>
+  </header>
+
+  <!-- 顶部标明这是 spike -->
+  <div class="banner">
+    <div class="tag">SPIKE</div>
+    <div>
+      <h1>QoS2 四步握手 + 断线<em>自动重连</em> Spike</h1>
+      <p>这不是普通 demo，是验证用的 spike：把 MQTT over WebSocket 的每一帧原始 hex 打出来，看 QoS2 的 PUBREC / PUBREL / PUBCOMP 全链路，以及 onclose 之后 1 秒自动重连、重连后重新 CONNECT + 重新订阅。</p>
+    </div>
+  </div>
+
+  <div class="statusbar">
+    <span class="dot busy" id="dot"></span>
+    <span class="stat busy" id="status">脚本加载中 …</span>
+    <span class="spacer"></span>
+    <span class="chip">最近一帧 <b id="lastPkt">—</b></span>
+    <span class="chip">已收 <b id="frameCount">0</b> 帧</span>
+    <span class="chip">最多重连 <b>3</b> 次</span>
+  </div>
+
+  <div class="card">
+    <h2>这个页面在跑什么</h2>
+    <ul>
+      <li>连 <code>wss://broker.emqx.io:8084/mqtt</code>，发 CONNECT（client_id <code>ws-spike</code>），收 CONNACK。</li>
+      <li>连上后由 <code>core/ClientCore</code> 纯函数自动产出 SUBSCRIBE，并在 SUBACK 后发一条 <strong>QoS2</strong> PUBLISH（topic <code>sensors/qos2</code>），随后走完 <strong>PUBREC → PUBREL → PUBCOMP</strong>——这些字节全部由 MoonBit 状态机生成，页面侧一行握手代码都没有。</li>
+      <li>产物内部每 12 秒会主动 <code>close()</code> 一次模拟断网：<code>onclose</code> → <code>on_transport_close()</code> → 1 秒后重连，最多 3 次，超过就放弃。</li>
+    </ul>
+    <div class="legend">
+      <div><span class="h">20 02</span> CONNACK</div>
+      <div><span class="h">30</span> PUBLISH（收/发都存在）</div>
+      <div><span class="h">40 02</span> PUBACK</div>
+      <div><span class="h">50 02</span> PUBREC（QoS2 第 2 步）</div>
+      <div><span class="h">62 02</span> PUBREL（QoS2 第 3 步）</div>
+      <div><span class="h">70 02</span> PUBCOMP（QoS2 第 4 步）</div>
+      <div><span class="h">90 03</span> SUBACK</div>
+      <div><span class="h">D0 00</span> PINGRESP</div>
+    </div>
+  </div>
+
+  <div class="toolbar">
+    <button id="btnDrop" type="button">强制断开（测试重连）</button>
+    <button id="btnClear" type="button" class="ghost">清空日志</button>
+    <button id="btnReload" type="button" class="ghost">重新加载页面</button>
+    <span class="note">产物只会自动执行一次，想从头再跑就整页刷新</span>
+  </div>
+
+  <div class="pane">
+    <h3>控制台日志（console.log 全量截获） <span class="num">[spike] …</span></h3>
+    <div id="log"></div>
+  </div>
+
+  <details>
+    <summary>端到端证据（2026-10-22，Node 22 实测，供评委核对）</summary>
+    <div class="body">
+      <p style="margin:0 0 4px;color:var(--muted);font-size:12.5px">QoS2 发布握手：</p>
+      <pre>PUBLISH(pid=1) → broker 回 PUBREC(0x50 02 00 01)
+             → core.feed() 自动产出 PUBREL(0x62 02 00 01)
+             → broker 回 PUBCOMP(0x70 02 00 01)
+             → 在途清空。全程无手写握手字节。</pre>
+      <p style="margin:0 0 4px;color:var(--muted);font-size:12.5px">断线重连：</p>
+      <pre>onclose → on_transport_close() → state = Disconnected
+  → 1s 后 reconnect attempt #1 → 新 CONNECT → 新 CONNACK
+  → 自动 SUBSCRIBE(pid=2) + QoS2 PUBLISH → 继续收 PUBLISH
+  → 最多 3 次（pid 递增 1→2→3）</pre>
+      <ol>
+        <li>浏览器侧与 Node 侧跑的是同一套 MoonBit core，页面只是换了 WebSocket 宿主。</li>
+        <li>完整记录见仓库 <a href="https://github.com/Duckweed-yhb/moon-mqtt/blob/main/docs/WS-SPIKE.md" style="color:var(--blue)">docs/WS-SPIKE.md</a>。</li>
+      </ol>
+    </div>
+  </details>
+
+  <footer>
+    moon-mqtt · spike 页面只加载同目录的 <code>./ws-spike.js</code>，不依赖任何本地构建目录 · <a href="index.html">去普通 demo</a>
+  </footer>
+
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  var logEl = document.getElementById("log");
+  var statusEl = document.getElementById("status");
+  var dotEl = document.getElementById("dot");
+  var lastPktEl = document.getElementById("lastPkt");
+  var frameCountEl = document.getElementById("frameCount");
+
+  var MAX_LOG = 2000;
+  var firstLog = false;
+  var frameCount = 0;
+
+  var PACKET_NAMES = {
+    1: "CONNECT", 2: "CONNACK", 3: "PUBLISH", 4: "PUBACK", 5: "PUBREC", 6: "PUBREL",
+    7: "PUBCOMP", 8: "SUBSCRIBE", 9: "SUBACK", 10: "UNSUBSCRIBE", 11: "UNSUBACK",
+    12: "PINGREQ", 13: "PINGRESP", 14: "DISCONNECT"
+  };
+
+  function pad2(n) { return n < 10 ? "0" + n : "" + n; }
+  function clock() {
+    var d = new Date();
+    return pad2(d.getHours()) + ":" + pad2(d.getMinutes()) + ":" + pad2(d.getSeconds());
+  }
+
+  function fmtArg(a) {
+    if (typeof a === "string") { return a; }
+    if (a instanceof Error) { return a.stack || a.message || String(a); }
+    if (typeof a === "object" && a !== null) {
+      try {
+        var s = JSON.stringify(a);
+        if (s && s.length < 4000) { return s; }
+      } catch (e) { /* 忽略 */ }
+    }
+    return String(a);
+  }
+
+  function addLog(level, text) {
+    var line = document.createElement("div");
+    line.className = "line " + level;
+    var t = document.createElement("span");
+    t.className = "t";
+    t.textContent = clock();
+    var m = document.createElement("span");
+    m.className = "m";
+    m.textContent = text;
+    line.appendChild(t);
+    line.appendChild(m);
+    logEl.appendChild(line);
+    while (logEl.childElementCount > MAX_LOG) { logEl.removeChild(logEl.firstElementChild); }
+    logEl.scrollTop = logEl.scrollHeight;
+    firstLog = true;
+    clearTimeout(noLogTimer);
+  }
+
+  function setStatus(text, kind) {
+    statusEl.textContent = text;
+    statusEl.className = "stat " + kind;
+    dotEl.className = "dot " + kind;
+  }
+
+  /* 逐条驱动状态行 */
+  function onLog(level, text) {
+    var m;
+    if ((m = /^\[spike\] onmessage hex: ([0-9A-F]{2})/.exec(text))) {
+      var type = parseInt(m[1], 16) >> 4;
+      lastPktEl.textContent = PACKET_NAMES[type] || ("0x" + m[1]);
+      if (type === 2) {
+        level = "good";
+        setStatus("已连接（收到 CONNACK）", "ok");
+      } else if (type === 9) {
+        level = "good";
+        setStatus("已连接 · 已订阅（SUBACK）", "ok");
+      } else if (type === 5 || type === 6 || type === 7) {
+        level = "qos2";
+        setStatus("已连接 · QoS2 握手中（" + PACKET_NAMES[type] + "）", "ok");
+      } else if (type === 3) {
+        setStatus("已连接 · 收到 PUBLISH", "ok");
+      }
+    } else if (text.indexOf("[spike] connecting to") === 0) {
+      setStatus("连接中 · 正在建立 WebSocket", "busy");
+    } else if (text.indexOf("[spike] onopen, sending CONNECT") === 0) {
+      setStatus("连接中 · CONNECT 已发送，等 CONNACK", "busy");
+    } else if ((m = /^\[spike\] reconnect attempt #(\d+) scheduled/.exec(text))) {
+      setStatus("重连中 · 第 " + m[1] + " 次（1 秒后重连）", "warn");
+    } else if (text.indexOf("[spike] reconnect attempt #") === 0) {
+      setStatus("重连中 · 正在重发 CONNECT", "warn");
+    } else if (text.indexOf("[spike] === 模拟网络断开") === 0) {
+      setStatus("断开中 · 12 秒模拟断网，即将自动重连", "warn");
+    } else if (text.indexOf("[spike] onclose") === 0) {
+      setStatus("已断开 · 等待自动重连", "warn");
+    } else if (text.indexOf("[spike] max reconnect attempts") === 0) {
+      setStatus("已放弃重连（达到 3 次上限）", "err");
+    } else if (text.indexOf("[spike] onerror") === 0) {
+      setStatus("连接出错（onerror）", "err");
+    }
+
+    addLog(level, text);
+  }
+
+  /* 截获 console.*（必须在加载产物之前） */
+  var nativeFns = {
+    log: console.log, info: console.info, warn: console.warn, error: console.error, debug: console.debug
+  };
+  function hook(name, level) {
+    var nativeFn = nativeFns[name];
+    console[name] = function () {
+      try { nativeFn.apply(console, arguments); } catch (e) { /* ignore */ }
+      var parts = [];
+      for (var i = 0; i < arguments.length; i++) { parts.push(fmtArg(arguments[i])); }
+      onLog(level, parts.join(" "));
+    };
+  }
+  hook("log", "info");
+  hook("info", "info");
+  hook("debug", "info");
+  hook("warn", "warn");
+  hook("error", "error");
+
+  window.addEventListener("error", function (ev) {
+    onLog("error", "[page] " + (ev && ev.message ? ev.message : "未知错误"));
+    setStatus("页面出错", "err");
+  });
+  window.addEventListener("unhandledrejection", function (ev) {
+    onLog("error", "[page] 未处理的 Promise 拒绝: " + fmtArg(ev && ev.reason));
+  });
+
+  /* 包一层 WebSocket：spike 产物内部的 ws 是局部变量，只能从这里拿到实例 */
+  var NativeWS = window.WebSocket;
+  if (typeof NativeWS === "function") {
+    var Hooked = function (url, protocols) {
+      var ws = (protocols === undefined) ? new NativeWS(url) : new NativeWS(url, protocols);
+      globalThis.__moonSpikeWs = ws;
+      try {
+        ws.addEventListener("message", function (ev) {
+          frameCount += 1;
+          frameCountEl.textContent = String(frameCount);
+        });
+      } catch (e) { /* ignore */ }
+      return ws;
+    };
+    Hooked.prototype = NativeWS.prototype;
+    Hooked.CONNECTING = 0;
+    Hooked.OPEN = 1;
+    Hooked.CLOSING = 2;
+    Hooked.CLOSED = 3;
+    window.WebSocket = Hooked;
+  }
+
+  document.getElementById("btnDrop").addEventListener("click", function () {
+    var ws = globalThis.__moonSpikeWs;
+    if (!ws) {
+      addLog("warn", "[page] 还没有 WebSocket 连接，等脚本先跑起来");
+      return;
+    }
+    addLog("warn", "[page] 强制断开：对当前 WebSocket 调用 close()，1 秒后应自动重连");
+    setStatus("断开中 · 等待 onclose → 自动重连", "warn");
+    try {
+      ws.close();
+    } catch (e) {
+      addLog("error", "[page] close() 调用失败: " + fmtArg(e));
+    }
+  });
+
+  document.getElementById("btnClear").addEventListener("click", function () {
+    logEl.innerHTML = "";
+    frameCount = 0;
+    frameCountEl.textContent = "0";
+  });
+
+  document.getElementById("btnReload").addEventListener("click", function () {
+    location.reload();
+  });
+
+  var noLogTimer = setTimeout(function () {
+    if (firstLog) { return; }
+    setStatus("脚本没有输出", "err");
+    addLog("error", "[page] 6 秒内没有任何日志：确认同目录的 ws-spike.js 存在，且页面通过 HTTP 打开");
+  }, 6000);
+
+  setTimeout(function () {
+    if (!firstLog) { return; }
+    if (statusEl.textContent === "脚本加载中 …") { setStatus("已启动 · 等待连接", "busy"); }
+  }, 800);
+})();
+</script>
+<script src="./ws-spike.js"></script>
+</body>
+</html>

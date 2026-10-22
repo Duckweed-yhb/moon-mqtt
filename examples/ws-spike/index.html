@@ -1,105 +1,30 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>moon-mqtt WebSocket Spike</title>
-  <style>
-    body {
-      font-family: "Consolas", "Monaco", monospace;
-      background: #1a1a1a;
-      color: #d4d4d4;
-      padding: 20px;
-      margin: 0;
-    }
-    h1 {
-      color: #4ec9b0;
-      font-size: 18px;
-    }
-    #console {
-      background: #0d0d0d;
-      border: 1px solid #333;
-      border-radius: 4px;
-      padding: 12px;
-      height: 60vh;
-      overflow-y: auto;
-      white-space: pre-wrap;
-      font-size: 13px;
-      line-height: 1.5;
-    }
-    .info { color: #569cd6; }
-    .success { color: #4ec9b0; }
-    .error { color: #f44747; }
-    .warn { color: #ce9178; }
-    button {
-      background: #0e639c;
-      color: white;
-      border: none;
-      padding: 8px 16px;
-      border-radius: 4px;
-      cursor: pointer;
-      font-family: inherit;
-      margin-bottom: 10px;
-    }
-    button:hover { background: #1177bb; }
-  </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="refresh" content="0; url=../../docs/demo/ws-spike.html">
+<title>moon-mqtt WebSocket Spike · 已迁移到 docs/demo/ws-spike.html</title>
+<style>
+  body {
+    margin: 0; padding: 56px 24px; background: #0f1117; color: #e6e9ef;
+    font: 14px/1.7 -apple-system, "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
+  }
+  .box { max-width: 560px; margin: 0 auto; }
+  h1 { font-size: 17px; margin: 0 0 10px; }
+  p { color: #8b95a7; font-size: 13px; margin: 0 0 10px; }
+  a { color: #6cb6ff; }
+  code {
+    background: #0b0e14; border: 1px solid #262d3a; border-radius: 5px; padding: 1px 5px;
+    font: 12.5px/1.4 ui-monospace, Consolas, monospace; color: #6cb6ff;
+  }
+</style>
 </head>
 <body>
-  <h1>moon-mqtt WebSocket Spike</h1>
-  <button onclick="start()">连接 EMQX Broker</button>
-  <div id="console"></div>
-
-  <h2 style="color:#ce9178;font-size:14px;margin-top:20px">端到端证据（2026-10-22，Node 22 实测）</h2>
-  <div style="background:#0d0d0d;border:1px solid #333;border-radius:4px;padding:12px;font-size:12px;line-height:1.6;color:#d4d4d4;white-space:pre-wrap;overflow-x:auto"><span style="color:#4ec9b0">QoS2 发布握手：</span>
-  PUBLISH(pid=1) → broker 回 PUBREC(0x50 02 00 01) → core.feed() 自动产出 PUBREL(0x62 02 00 01) → broker 回 PUBCOMP(0x70 02 00 01) → 在途清空。
-  全程无手写握手字节，全由 core/ClientCore 纯函数驱动。
-
-<span style="color:#569cd6">断线重连：</span>
-  onclose → on_transport_close() → state=Disconnected
-  → 1s 后 reconnect attempt #1 → 新 CONNECT → 新 CONNACK → 自动 SUBSCRIBE(pid=2) + QoS2 PUBLISH → 继续收 PUBLISH。
-  最多重连 3 次（pid 递增 1→2→3）。</div>
-
-  <script>
-    const consoleEl = document.getElementById('console');
-
-    function log(msg, cls = '') {
-      const line = document.createElement('div');
-      line.className = cls;
-      line.textContent = '[' + new Date().toLocaleTimeString() + '] ' + msg;
-      consoleEl.appendChild(line);
-      consoleEl.scrollTop = consoleEl.scrollHeight;
-    }
-
-    function start() {
-      consoleEl.innerHTML = '';
-      log('启动 MoonBit 编译产物...', 'info');
-
-      // 动态加载 JS
-      const script = document.createElement('script');
-      script.src = '_build/js/debug/build/examples/ws-spike/ws-spike.js';
-      script.onload = () => {
-        log('JS 加载完成，自动执行 main()...', 'success');
-      };
-      script.onerror = (e) => {
-        log('JS 加载失败: ' + e, 'error');
-      };
-      document.head.appendChild(script);
-    }
-
-    // 重写 console.log，输出到页面（在 JS 加载前重写）
-    const origLog = console.log;
-    console.log = function(...args) {
-      origLog.apply(console, args);
-      log(args.join(' '), 'info');
-    };
-    console.error = function(...args) {
-      origLog.apply(console, args);
-      log(args.join(' '), 'error');
-    };
-    console.warn = function(...args) {
-      origLog.apply(console, args);
-      log(args.join(' '), 'warn');
-    };
-  </script>
+<div class="box">
+  <h1>QoS2 / 重连 spike 页面已经迁移</h1>
+  <p>新地址是 <a href="../../docs/demo/ws-spike.html">docs/demo/ws-spike.html</a>，正在自动跳转……如果没跳，点上面的链接。</p>
+  <p>新页面直接加载同目录已经构建好的 <code>ws-spike.js</code>，不再依赖仓库里的构建输出目录，所以 GitHub Pages 也能直接打开。</p>
+</div>
 </body>
 </html>

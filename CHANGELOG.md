@@ -4,6 +4,22 @@
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-10-22
+
+### Added
+
+- `browser/` 包补齐高层 API：`connect` / `connect_opts` / `connect_persistent`，`on_connect` / `on_suback` / `on_message` 三个回调，`subscribe` / `publish` / `disconnect`。
+- `browser/publish` 出站 QoS1/2 交给 `core.publish`：packet_id 自动分配并记入在途，PUBACK / PUBREC→PUBREL→PUBCOMP 由 `core.feed()` 自动推进，应用层不碰握手包。
+- `browser/connect_persistent`：clean_session=false，CONNACK 带 `session_present=1` 时把在途帧 replay 出去。回调顺序按 CONNACK → SUBACK → PUBLISH 触发。
+- `docs/demo/` 静态页面与 `scripts/build-demo.ps1`：浏览器 demo 从 `docs/` 直接打开，不再依赖 `_build` 路径。
+
+### Changed
+
+- 版本 0.2.0 → 0.2.1。
+- `browser/` 的 JS FFI 边界改用 `FixedArray[Int]` 传字节，`moon check --target js --deny-warn` 通过，0 警告。
+- README 改成浏览器优先叙述：开头讲 WebSocket 宿主与 QoS0/1/2，新增「在线 demo」小节和无头 Chrome 实测日志；Node 运行降到「命令行验证」一节。安装版本同步 0.2.1。
+- 申报书压到一页，浏览器证据换成无头 Chrome 日志，测试数改为 wasm-gc 77/77、native 80/80。
+
 ## [0.2.0] - 2026-10-20
 
 ### Added

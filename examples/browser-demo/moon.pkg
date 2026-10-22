@@ -1,0 +1,10 @@
+///|
+/// examples/browser-demo — 浏览器 MQTT 客户端演示
+///
+/// 用 @browser 高层 API 连接 EMQX broker，订阅主题、发布消息、接收回调。
+supported_targets = "js"
+pkgtype(kind: "executable")
+import {
+  "Duckweed/moon-mqtt/browser" @browser,
+  "Duckweed/moon-mqtt/protocol" @protocol,
+}

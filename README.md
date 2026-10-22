@@ -92,7 +92,52 @@ Node 实测输出：
 
 core 不 import 任何 WebSocket/socket 依赖，同一份代码在 native（C FFI TCP）和 js/wasm（WebSocket）下零改动复用。设计细节见 [docs/WS-SPIKE.md](docs/WS-SPIKE.md)。
 
-> ws-spike 是 spike 验证，不是正式浏览器 API。正式浏览器 client 封装（消息回调管理、出站 QoS1/2 PUBLISH）留后续。
+> ws-spike 是 spike 验证，不是正式浏览器 API。正式浏览器 client 封装见下文 `browser/` 包。
+
+## 浏览器快速上手
+
+`browser/` 包提供高层 API，浏览器项目 `moon add Duckweed/moon-mqtt@0.2.0` 后直接 import：
+
+```moonbit
+// your-app/main.mbt
+import {
+  "Duckweed/moon-mqtt/browser" @browser,
+  "Duckweed/moon-mqtt/protocol" @protocol,
+}
+
+fn main() -> Unit {
+  let client = @browser.connect("broker.emqx.io", 8084, "my-browser-client")
+
+  // 收到 PUBLISH 消息
+  @browser.on_message(client, fn(topic, payload) {
+    println("recv " + topic)
+  })
+
+  // 连接成功后再订阅 / 发布
+  @browser.on_connect(client, fn() {
+    @browser.subscribe(client, "sensors/#", @protocol.qos1())
+    @browser.publish(client, "sensors/hello", [0x68, 0x69], @protocol.qos0())
+  })
+
+  // 用完断开
+  // @browser.disconnect(client)
+}
+```
+
+API 一览：
+
+| 函数 | 说明 |
+|---|---|
+| `connect(host, port, client_id) -> Client` | 建立 WSS 连接，自动发 CONNECT |
+| `on_connect(client, handler)` | 收到 CONNACK 后回调 |
+| `on_message(client, handler)` | 收到 PUBLISH 时回调 `(topic, payload)` |
+| `subscribe(client, topic, qos)` | 订阅主题 |
+| `publish(client, topic, payload, qos)` | 发布消息（QoS0 完整支持） |
+| `disconnect(client)` | 发 DISCONNECT 并关闭 |
+
+内部实现：`browser/` 持有 `@core.ClientCore` 纯计算状态机，WebSocket 由 JS 胶水层持有，`on_message` / `on_close` 回调经 mangled 名从 JS 调回 MoonBit。断线自动重连（1s 间隔，最多 3 次）。
+
+完整示例见 [examples/browser-demo/](examples/browser-demo/)。
 
 ## Native TCP 连接
 
@@ -166,10 +211,15 @@ flowchart TB
         cli --> tr
     end
 
+    subgraph browser["js only · WebSocket"]
+        br["browser/ 高层 API<br/>connect / subscribe / publish<br/>on_connect / on_message 回调<br/>自动重连"]
+    end
+
     glue["JS 胶水层（浏览器 / Node）<br/>持有 WebSocket：onopen 发 CONNECT<br/>onmessage 收字节、写回出站字节"]
 
     app1["应用（CLI / 边缘遥测）"] --> cli
-    app2["浏览器应用"] --> glue
+    app2["浏览器应用"] --> br
+    br --> glue
 
     glue --> core
     core -.->|"出站字节（自动握手应答）"| glue
@@ -181,8 +231,8 @@ flowchart TB
 两条运行路径共用同一份纯计算包：
 
 - **native 路径**：`client/` 直接用 `protocol/` + `session/` + `transport/` 组装阻塞式 `MqttClient`，走 C FFI TCP。
-- **浏览器 / Node 路径**：`client/` 不参与，JS 胶水层持有 WebSocket，调 `core/` 的 `start()/feed()` 纯函数；`core/` 收到字节后吐事件给应用，同时吐出站字节（PUBACK/PUBREC/PUBCOMP 等）由胶水层写回 broker。
-- `protocol/`、`session/`、`core/` 不 import 任何 platform 依赖，覆盖 wasm / wasm-gc / js / native 四个后端；`transport/` 与 `client/` 仅 native。
+- **浏览器 / Node 路径**：`browser/` 高层 API 持有 `@core.ClientCore`，JS 胶水层持有 WebSocket，经 mangled 名回调 MoonBit 的 `browser_on_message` / `browser_on_close`；`core/` 收到字节后吐事件给应用，同时吐出站字节由 `browser_send` 写回 broker。
+- `protocol/`、`session/`、`core/` 不 import 任何 platform 依赖，覆盖 wasm / wasm-gc / js / native 四个后端；`transport/` 与 `client/` 仅 native，`browser/` 仅 js。
 - QoS2 exactly-once（PUBREC/PUBREL/PUBCOMP 握手）与断线重连状态边界是核心差异化。
 
 `core/` 入站字节的数据流（`feed()` 一次调用同时产出事件与出站字节）：
@@ -231,6 +281,7 @@ sequenceDiagram
 - [x] `core/` ClientCore 连接状态机（start/feed、QoS1/2 自动握手、断线重连、SessionStore 接入）
 - [x] `transport/` native TCP 网络层（C FFI，跨平台，带 wait_read 超时）
 - [x] `client/` 高层 API（connect / publish / subscribe / poll_loop 自动心跳 / reconnect 自动重连 / disconnect）
+- [x] `browser/` 浏览器高层 API（connect / subscribe / publish / on_connect / on_message / 自动重连，js 后端）
 - [x] 浏览器 WebSocket 端到端打通（`examples/ws-spike/`）
 - [x] mooncakes 发布（`Duckweed/moon-mqtt@0.2.0`）
 - [x] `moon test --target wasm-gc` 74/74 通过；`moon test --target native` 77/77 通过；0 警告
@@ -275,7 +326,7 @@ mosquitto_sub -h 127.0.0.1 -t 'sensors/#' -v
 ## 已知限制
 
 - **会话快照落盘**：`SessionStore` 提供 `snapshot()` / `restore()` 字节级原语，调用方自行写盘；库本身不做文件读写。
-- **`transport/` 与 `client/` 仅 native**：依赖 C FFI socket。`protocol/`、`session/`、`core/` 四后端可测。浏览器场景通过 WebSocket 胶水层接入（ws-spike 已验证），正式浏览器 client 封装未提供。
+- **`transport/` 与 `client/` 仅 native**：依赖 C FFI socket。`protocol/`、`session/`、`core/` 四后端可测。浏览器场景通过 `browser/` 包 + WebSocket 胶水层接入，已端到端验证。`browser/` 仅 js 后端。
 - **阻塞式 API**：`client/` 为阻塞式，适合 CLI / 边缘遥测；高并发长连接场景需要异步封装，当前未提供。
 - **同步握手期间的入站 PUBLISH**：`publish` 等 PUBACK/PUBREC/PUBCOMP、`subscribe` 等 SUBACK 时，若 broker 恰好推来订阅主题的 PUBLISH，当前代码返回 `"expected XXX"` 错误并丢弃该帧。边发布边接收应改用 `poll_loop` + `subscribe_with_handler`。
 - **坏协议帧卡缓冲**：`core/Framer` 遇到无法识别的帧（剩余长度 >4 字节、保留报文类型等）会把这帧永久留在内部缓冲里，不再产出后续帧，也不 reset 缓冲。正常 broker 不会发这种帧；若需要对端异常时主动断开，需在调用方加超时检测。

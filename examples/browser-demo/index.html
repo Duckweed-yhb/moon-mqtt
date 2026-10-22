@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>moon-mqtt Browser Demo</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 600px; margin: 40px auto; padding: 0 20px; }
+    h1 { color: #4ec9b0; }
+    input, button { padding: 8px 12px; margin: 4px; border: 1px solid #ccc; border-radius: 4px; }
+    button { background: #0e639c; color: white; border: none; cursor: pointer; }
+    #messages { margin-top: 20px; border-top: 1px solid #eee; padding-top: 10px; }
+    .msg { padding: 4px 0; border-bottom: 1px solid #f5f5f5; }
+    .topic { color: #569cd6; }
+    .payload { color: #4ec9b0; }
+  </style>
+</head>
+<body>
+  <h1>moon-mqtt Browser Demo</h1>
+  <p>连接到公共 EMQX broker，订阅 <code>sensors/#</code>，接收传感器消息。</p>
+  <div>
+    <input id="topic" placeholder="topic" value="sensors/test" size="20">
+    <input id="payload" placeholder="payload" value="hello" size="20">
+    <button onclick="publish()">发布</button>
+  </div>
+  <div id="messages"></div>
+  <script>
+    const script = document.createElement('script');
+    script.src = '_build/js/debug/build/examples/browser-demo/browser-demo.js';
+    document.head.appendChild(script);
+    // publish 按钮占位（实际发布由 MoonBit 侧触发，这里只演示）
+    function publish() {
+      const topic = document.getElementById('topic').value;
+      const payload = document.getElementById('payload').value;
+      const div = document.createElement('div');
+      div.className = 'msg';
+      div.innerHTML = '<span class="topic">' + topic + '</span> <span class="payload">' + payload + '</span>';
+      document.getElementById('messages').appendChild(div);
+    }
+    // 重写 console.log 输出到页面
+    const orig = console.log;
+    console.log = function(...args) {
+      orig.apply(console, args);
+      const div = document.createElement('div');
+      div.className = 'msg';
+      div.textContent = args.join(' ');
+      document.getElementById('messages').appendChild(div);
+    };
+  </script>
+</body>
+</html>

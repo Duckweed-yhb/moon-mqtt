@@ -2,6 +2,8 @@
 
 MoonBit 写的 MQTT 3.1.1 客户端。浏览器里走 WebSocket，native 上走 C FFI TCP，两条路径共用同一份纯计算状态机。QoS0/1/2 全支持，QoS2 exactly-once 和持久会话恢复是重点。MQTT 5.0 在路线图上。
 
+做它的原因很直接：MoonBit 这边缺一个能在浏览器里直连 broker、又把 QoS2 做完整的客户端。
+
 | 宿主 | 包 | 形态 |
 |---|---|---|
 | 浏览器（js 后端） | `browser/` | 回调式，publish 支持 QoS0/1/2，断线 1 秒自动重连 |
@@ -26,7 +28,9 @@ import {
 
 ## 在线 demo
 
-开启 GitHub Pages 后，demo 地址是 https://duckweed-yhb.github.io/moon-mqtt/demo/ ，页面源文件在 `docs/demo/`。
+demo：https://duckweed-yhb.github.io/moon-mqtt/docs/demo/
+
+入口页：https://duckweed-yhb.github.io/moon-mqtt/docs/ 。页面源文件在 `docs/demo/`。
 
 页面连公共 EMQX `broker.emqx.io:8084`，订阅 `sensors/#` QoS1，收到 SUBACK 后发一条 QoS1 再收回自己的消息。点「强制断开（测试重连）」能走一次重连。
 
@@ -104,20 +108,6 @@ API：
 
 `session_present=1` 说明 broker 按 clean_session=false 把会话留着；`replay 0 frame(s)` 说明那次没有在途的 QoS1/2 帧要重发，订阅由 `on_connect` 重新发起。
 
-## 竞品对照
-
-MoonBit 生态里已有两个相关项目：
-
-| 项目 | 做了什么 | 缺什么 |
-|---|---|---|
-| `zbhzs1/moonbit-mqtt` | 报文 codec | 无 transport、无 client runtime |
-| `Strangelight-Merser/moon-mqtt-client@0.7.1` | native async client，TCP/TLS/WS/WSS，QoS0/1 | 无 QoS2；README 明确不提供浏览器适配 |
-| **moon-mqtt** | QoS0/1/2 全量、持久会话恢复、`core/` 纯计算状态机、`browser/` 浏览器高层 API | 阻塞式，无异步封装 |
-
-浏览器这一侧，两个项目都不覆盖。
-
-参考移植（原创重写，不复制源码）：API 形状参考 [MQTT.js](https://github.com/mqttjs/MQTT.js)（MIT），协议行为参考 [Eclipse Paho C](https://github.com/eclipse/paho.mqtt.c)（EPL-2.0/EDL-1.0）。本项目许可证 **MIT**。
-
 ## 运行示例
 
 | 示例 | 跑法 | 做什么 |
@@ -194,40 +184,9 @@ node "_build\js\debug\build\examples\ws-spike\ws-spike.js"
 
 ## 设计
 
-五层结构，框里标了纯计算层和仅 native / 仅 js 的部分：
+![moon-mqtt 架构](docs/assets/architecture.png)
 
-```mermaid
-flowchart TB
-    subgraph pure["纯计算层 · 四后端可测（wasm / wasm-gc / js / native）"]
-        direction TB
-        proto["protocol/ 报文编解码<br/>CONNECT · PUBLISH · SUBSCRIBE · PING<br/>固定头 · 剩余长度变长 · topic 过滤"]
-        sess["session/ 会话状态机<br/>SessionStore 在途表 · packet_id 分配<br/>on_puback / pubrec / pubcomp · replay · snapshot"]
-        core["core/ ClientCore 连接状态机<br/>start() → CONNECT 字节<br/>feed(bytes) → (事件列表, 出站字节)<br/>自动回 PUBACK / PUBREC / PUBCOMP"]
-        proto --> sess --> core
-    end
-
-    subgraph native["native only · C FFI"]
-        cli["client/ MqttClient（阻塞式）<br/>connect / publish / subscribe<br/>poll_loop 心跳 · reconnect 自动 replay"]
-        tr["transport/ TcpClient<br/>winsock2 / POSIX socket<br/>read_some · write · wait_read"]
-        cli --> tr
-    end
-
-    subgraph browser["js only · WebSocket"]
-        br["browser/ 高层 API<br/>connect / subscribe / publish<br/>on_connect / on_suback / on_message<br/>自动重连"]
-    end
-
-    glue["JS 胶水层（浏览器）<br/>持有 WebSocket：onopen 发 CONNECT<br/>onmessage 收字节、写回出站字节"]
-
-    app1["应用（CLI / 边缘遥测）"] --> cli
-    app2["浏览器应用"] --> br
-    br --> glue
-
-    glue --> core
-    core -.->|"出站字节（自动握手应答）"| glue
-    cli -->|"encode / decode / session 状态"| proto
-    tr <--> broker["MQTT Broker"]
-    glue <--> broker
-```
+> 矢量图在 [docs/assets/architecture.svg](docs/assets/architecture.svg)。颜色区分应用、宿主 API、传输层和纯计算层。
 
 两条路径的关系：
 
@@ -337,3 +296,5 @@ mosquitto_sub -h 127.0.0.1 -t 'sensors/#' -v
 ## 许可证
 
 MIT © Duckweed-yhb
+
+API 形状参考 [MQTT.js](https://github.com/mqttjs/MQTT.js)（MIT），协议行为对照 [Eclipse Paho C](https://github.com/eclipse/paho.mqtt.c)（EPL-2.0 / EDL-1.0）。实现依据 OASIS MQTT 3.1.1 规范，源码为 MoonBit 原创重写，不复制上述项目的代码。

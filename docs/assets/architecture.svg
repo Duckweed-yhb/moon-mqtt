@@ -1,0 +1,152 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1240 860" role="img" aria-labelledby="archTitle archDesc">
+  <title id="archTitle">moon-mqtt 架构</title>
+  <desc id="archDesc">一套纯计算核心，两个宿主：浏览器 WebSocket 与 native TCP。protocol、session、core 为纯计算层，四后端可测。</desc>
+
+  <defs>
+    <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+      <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#1e293b" stroke-width="0.5"/>
+    </pattern>
+
+    <marker id="a-cyan" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#22d3ee"/>
+    </marker>
+    <marker id="a-emerald" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#34d399"/>
+    </marker>
+    <marker id="a-amber" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#fbbf24"/>
+    </marker>
+    <marker id="a-violet" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#a78bfa"/>
+    </marker>
+    <marker id="a-slate" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#94a3b8"/>
+    </marker>
+  </defs>
+
+  <style>
+    text {
+      font-family: 'JetBrains Mono', 'Cascadia Code', 'Microsoft YaHei', 'Noto Sans SC', monospace, sans-serif;
+    }
+    .title    { font-size: 20px; font-weight: 700; fill: #f8fafc; }
+    .subtitle { font-size: 10px; fill: #94a3b8; }
+    .region   { font-size: 9px; font-weight: 600; letter-spacing: .2px; }
+    .name     { font-size: 13px; font-weight: 600; fill: #f8fafc; }
+    .name-sm  { font-size: 12px; font-weight: 600; fill: #f8fafc; }
+    .desc     { font-size: 9px; fill: #94a3b8; }
+    .tiny     { font-size: 8px; fill: #64748b; }
+    .label    { font-size: 8px; fill: #94a3b8; }
+    .legend   { font-size: 9px; fill: #94a3b8; }
+  </style>
+
+  <rect width="1240" height="860" fill="#0f172a"/>
+  <rect width="1240" height="860" fill="url(#grid)"/>
+
+  <!-- 标题 -->
+  <text x="40" y="46" class="title">moon-mqtt 架构</text>
+  <text x="40" y="68" class="subtitle">一套纯计算核心，两个宿主：浏览器 WebSocket / native TCP</text>
+
+  <!-- 图例 -->
+  <rect x="880" y="34" width="10" height="10" rx="2" fill="rgba(8,51,68,0.4)" stroke="#22d3ee"/>
+  <text x="896" y="43" class="legend">应用</text>
+  <rect x="946" y="34" width="10" height="10" rx="2" fill="rgba(6,78,59,0.4)" stroke="#34d399"/>
+  <text x="962" y="43" class="legend">宿主 API</text>
+  <rect x="1046" y="34" width="10" height="10" rx="2" fill="rgba(120,53,15,0.3)" stroke="#fbbf24"/>
+  <text x="1062" y="43" class="legend">传输</text>
+  <rect x="1122" y="34" width="10" height="10" rx="2" fill="rgba(76,29,149,0.4)" stroke="#a78bfa"/>
+  <text x="1138" y="43" class="legend">纯计算</text>
+
+  <!-- 区域边界 -->
+  <rect x="40" y="95" width="420" height="310" rx="14" fill="none" stroke="#22d3ee" stroke-opacity="0.35" stroke-dasharray="8,4"/>
+  <text x="56" y="116" class="region" fill="#22d3ee">浏览器宿主 · js 后端</text>
+
+  <rect x="740" y="95" width="420" height="310" rx="14" fill="none" stroke="#34d399" stroke-opacity="0.35" stroke-dasharray="8,4"/>
+  <text x="756" y="116" class="region" fill="#34d399">native 宿主 · C FFI</text>
+
+  <rect x="40" y="445" width="1120" height="215" rx="14" fill="none" stroke="#a78bfa" stroke-opacity="0.35" stroke-dasharray="8,4"/>
+  <text x="56" y="466" class="region" fill="#a78bfa">纯计算层 · 四后端可测（wasm / wasm-gc / js / native）</text>
+
+  <!-- 连线（先画，压在盒子下面） -->
+  <path d="M250,198 L250,221" fill="none" stroke="#22d3ee" stroke-width="1.5" marker-end="url(#a-cyan)"/>
+  <path d="M250,291 L250,318" fill="none" stroke="#22d3ee" stroke-width="1.5" marker-end="url(#a-cyan)"/>
+  <path d="M950,198 L950,221" fill="none" stroke="#34d399" stroke-width="1.5" marker-end="url(#a-emerald)"/>
+  <path d="M950,291 L950,318" fill="none" stroke="#34d399" stroke-width="1.5" marker-end="url(#a-emerald)"/>
+
+  <path d="M430,355 L610,355 L610,491" fill="none" stroke="#fbbf24" stroke-width="1.5" marker-end="url(#a-amber)"/>
+
+  <path d="M450,552 L374,552" fill="none" stroke="#a78bfa" stroke-width="1.4" stroke-dasharray="4,3" marker-end="url(#a-violet)"/>
+  <path d="M770,552 L846,552" fill="none" stroke="#a78bfa" stroke-width="1.4" stroke-dasharray="4,3" marker-end="url(#a-violet)"/>
+
+  <path d="M70,355 L28,355 L28,733 L466,733" fill="none" stroke="#fbbf24" stroke-width="1.4" stroke-opacity="0.75" marker-end="url(#a-amber)"/>
+  <path d="M1130,355 L1212,355 L1212,733 L774,733" fill="none" stroke="#fbbf24" stroke-width="1.4" stroke-opacity="0.75" marker-end="url(#a-amber)"/>
+
+  <!-- 浏览器宿主 -->
+  <rect x="70" y="140" width="360" height="58" rx="7" fill="#0f172a"/>
+  <rect x="70" y="140" width="360" height="58" rx="7" fill="rgba(8,51,68,0.4)" stroke="#22d3ee" stroke-width="1.5"/>
+  <text x="250" y="164" text-anchor="middle" class="name">浏览器应用</text>
+  <text x="250" y="182" text-anchor="middle" class="desc">仪表盘 · 配置页 · 边缘控制台</text>
+
+  <rect x="70" y="225" width="360" height="66" rx="7" fill="#0f172a"/>
+  <rect x="70" y="225" width="360" height="66" rx="7" fill="rgba(6,78,59,0.4)" stroke="#34d399" stroke-width="1.5"/>
+  <text x="250" y="250" text-anchor="middle" class="name-sm">browser/ 高层 API</text>
+  <text x="250" y="268" text-anchor="middle" class="desc">connect · subscribe · publish · 回调</text>
+
+  <rect x="70" y="322" width="360" height="66" rx="7" fill="#0f172a"/>
+  <rect x="70" y="322" width="360" height="66" rx="7" fill="rgba(120,53,15,0.3)" stroke="#fbbf24" stroke-width="1.5"/>
+  <text x="250" y="347" text-anchor="middle" class="name-sm">JS 胶水层</text>
+  <text x="250" y="365" text-anchor="middle" class="desc">WebSocket · 子协议 mqtt · 二进制帧</text>
+
+  <!-- native 宿主 -->
+  <rect x="770" y="140" width="360" height="58" rx="7" fill="#0f172a"/>
+  <rect x="770" y="140" width="360" height="58" rx="7" fill="rgba(8,51,68,0.4)" stroke="#22d3ee" stroke-width="1.5"/>
+  <text x="950" y="164" text-anchor="middle" class="name">CLI / 边缘设备</text>
+  <text x="950" y="182" text-anchor="middle" class="desc">遥测上报 · 网关 · 本地脚本</text>
+
+  <rect x="770" y="225" width="360" height="66" rx="7" fill="#0f172a"/>
+  <rect x="770" y="225" width="360" height="66" rx="7" fill="rgba(6,78,59,0.4)" stroke="#34d399" stroke-width="1.5"/>
+  <text x="950" y="250" text-anchor="middle" class="name-sm">client/ MqttClient</text>
+  <text x="950" y="268" text-anchor="middle" class="desc">阻塞式 · poll_loop 心跳 · reconnect</text>
+
+  <rect x="770" y="322" width="360" height="66" rx="7" fill="#0f172a"/>
+  <rect x="770" y="322" width="360" height="66" rx="7" fill="rgba(120,53,15,0.3)" stroke="#fbbf24" stroke-width="1.5"/>
+  <text x="950" y="347" text-anchor="middle" class="name-sm">transport/ TcpClient</text>
+  <text x="950" y="365" text-anchor="middle" class="desc">C FFI · winsock2 / POSIX · read / write</text>
+
+  <!-- 纯计算层 -->
+  <rect x="70" y="505" width="300" height="95" rx="7" fill="#0f172a"/>
+  <rect x="70" y="505" width="300" height="95" rx="7" fill="rgba(76,29,149,0.4)" stroke="#a78bfa" stroke-width="1.5"/>
+  <text x="220" y="530" text-anchor="middle" class="name">protocol/</text>
+  <text x="220" y="550" text-anchor="middle" class="desc">MQTT 3.1.1 全量编解码</text>
+  <text x="220" y="566" text-anchor="middle" class="desc">固定头 · 剩余长度 · topic 过滤</text>
+
+  <rect x="450" y="495" width="320" height="115" rx="7" fill="#0f172a"/>
+  <rect x="450" y="495" width="320" height="115" rx="7" fill="rgba(76,29,149,0.4)" stroke="#a78bfa" stroke-width="1.8"/>
+  <text x="610" y="522" text-anchor="middle" class="name">core/ ClientCore</text>
+  <text x="610" y="543" text-anchor="middle" class="desc">start() → CONNECT 字节</text>
+  <text x="610" y="560" text-anchor="middle" class="desc">feed(bytes) → 事件 + 出站字节</text>
+  <text x="610" y="577" text-anchor="middle" class="desc">自动回 PUBACK / PUBREC / PUBCOMP</text>
+  <text x="610" y="596" text-anchor="middle" class="tiny">无 socket 依赖 · 同一份核心两个宿主复用</text>
+
+  <rect x="850" y="505" width="300" height="95" rx="7" fill="#0f172a"/>
+  <rect x="850" y="505" width="300" height="95" rx="7" fill="rgba(76,29,149,0.4)" stroke="#a78bfa" stroke-width="1.5"/>
+  <text x="1000" y="530" text-anchor="middle" class="name">session/</text>
+  <text x="1000" y="550" text-anchor="middle" class="desc">QoS2 状态机 · 在途表</text>
+  <text x="1000" y="566" text-anchor="middle" class="desc">packet_id · replay · snapshot</text>
+
+  <!-- Broker -->
+  <rect x="470" y="700" width="300" height="66" rx="7" fill="#0f172a"/>
+  <rect x="470" y="700" width="300" height="66" rx="7" fill="rgba(30,41,59,0.5)" stroke="#94a3b8" stroke-width="1.5"/>
+  <text x="620" y="726" text-anchor="middle" class="name">MQTT Broker</text>
+  <text x="620" y="744" text-anchor="middle" class="desc">EMQX · Mosquitto · HiveMQ</text>
+
+  <!-- 连线标签 -->
+  <text x="618" y="430" class="label">feed / 事件</text>
+  <text x="412" y="545" text-anchor="middle" class="label">encode / decode</text>
+  <text x="808" y="545" text-anchor="middle" class="label">QoS 状态</text>
+  <text x="950" y="430" text-anchor="middle" class="tiny">client/ 复用 protocol + session 组装</text>
+  <text x="440" y="726" text-anchor="end" class="label">wss</text>
+  <text x="802" y="726" text-anchor="start" class="label">tcp</text>
+
+  <!-- 页脚 -->
+  <text x="40" y="822" class="tiny">实线：数据流 · 虚线：内部依赖 · 出站字节由 core.feed() 一并返回</text>
+</svg>

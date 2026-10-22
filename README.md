@@ -16,7 +16,7 @@ MoonBit 生态已有两个相关项目：
 
 ## 安装
 
-需要 [MoonBit 工具链](https://www.moonbitlang.com/)（moon ≥ 0.1.2026xxxx）。
+需要 [MoonBit 工具链](https://www.moonbitlang.com/)（moon ≥ 0.1.20261012）。
 
 ```bash
 moon add Duckweed/moon-mqtt@0.2.0

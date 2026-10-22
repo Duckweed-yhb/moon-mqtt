@@ -147,20 +147,68 @@ client.disconnect()?
 
 ## 设计
 
-五层架构：
+五层架构（框内标注纯计算层四后端可测 vs native only）：
 
-```
-protocol/   报文编解码（纯计算，四后端可测）   ✅
-session/    会话状态机（纯计算，四后端可测）   ✅
-core/       ClientCore 连接状态机（纯计算，四后端可测） ✅
-transport/  native TCP 网络层（C FFI）        ✅
-client/     高层客户端 API（native）          ✅
+```mermaid
+flowchart TB
+    subgraph pure["纯计算层 · 四后端可测（wasm / wasm-gc / js / native）"]
+        direction TB
+        proto["protocol/ 报文编解码<br/>CONNECT · PUBLISH · SUBSCRIBE · PING<br/>固定头 · 剩余长度变长 · topic 过滤"]
+        sess["session/ 会话状态机<br/>SessionStore 在途表 · packet_id 分配<br/>on_puback / pubrec / pubcomp · replay · snapshot"]
+        core["core/ ClientCore 连接状态机<br/>start() → CONNECT 字节<br/>feed(bytes) → (事件列表, 出站字节)<br/>自动回 PUBACK / PUBREC / PUBCOMP"]
+        proto --> sess --> core
+    end
+
+    subgraph native["native only · C FFI"]
+        cli["client/ MqttClient（阻塞式）<br/>connect / publish / subscribe<br/>poll_loop 心跳 · reconnect 自动 replay"]
+        tr["transport/ TcpClient<br/>winsock2 / POSIX socket<br/>read_some · write · wait_read"]
+        cli --> tr
+    end
+
+    glue["JS 胶水层（浏览器 / Node）<br/>持有 WebSocket：onopen 发 CONNECT<br/>onmessage 收字节、写回出站字节"]
+
+    app1["应用（CLI / 边缘遥测）"] --> cli
+    app2["浏览器应用"] --> glue
+
+    glue --> core
+    core -.->|"出站字节（自动握手应答）"| glue
+    cli -->|"encode / decode / session 状态"| proto
+    tr <--> broker["MQTT Broker"]
+    glue <--> broker
 ```
 
-- `protocol/`、`session/`、`core/` 是纯计算包，不 import 任何 platform 依赖，覆盖 wasm / wasm-gc / js / native 四个后端。
-- `transport/` 与 `client/` 仅 native：transport 用 C FFI 自写 socket（Windows winsock2 / POSIX），client 把 protocol + session + core + transport 组装成阻塞式 `MqttClient`。
-- 浏览器 / Node 场景不走 transport/，由 JS 胶水层持有 WebSocket，调 core 的 `start()/feed()` 纯函数。
+两条运行路径共用同一份纯计算包：
+
+- **native 路径**：`client/` 直接用 `protocol/` + `session/` + `transport/` 组装阻塞式 `MqttClient`，走 C FFI TCP。
+- **浏览器 / Node 路径**：`client/` 不参与，JS 胶水层持有 WebSocket，调 `core/` 的 `start()/feed()` 纯函数；`core/` 收到字节后吐事件给应用，同时吐出站字节（PUBACK/PUBREC/PUBCOMP 等）由胶水层写回 broker。
+- `protocol/`、`session/`、`core/` 不 import 任何 platform 依赖，覆盖 wasm / wasm-gc / js / native 四个后端；`transport/` 与 `client/` 仅 native。
 - QoS2 exactly-once（PUBREC/PUBREL/PUBCOMP 握手）与断线重连状态边界是核心差异化。
+
+`core/` 入站字节的数据流（`feed()` 一次调用同时产出事件与出站字节）：
+
+```mermaid
+sequenceDiagram
+    participant B as Broker
+    participant G as 胶水层 (WebSocket / C FFI)
+    participant C as core.ClientCore
+    participant A as 应用回调
+    G->>C: start()
+    C-->>G: CONNECT 字节
+    G->>B: send CONNECT
+    B-->>G: CONNACK 字节
+    G->>C: feed(bytes)
+    C-->>G: [Connack] + 出站 []
+    G->>A: on_connack(session_present)
+    B-->>G: PUBLISH (QoS2) 字节
+    G->>C: feed(bytes)
+    C-->>G: [Publish] + [PUBREC]
+    G->>A: on_publish(topic, payload)
+    G->>B: send PUBREC
+    B-->>G: PUBREL
+    G->>C: feed(bytes)
+    C-->>G: [] + [PUBCOMP]
+    G->>B: send PUBCOMP
+```
 
 详细设计见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)。
 

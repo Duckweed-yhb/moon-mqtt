@@ -1,6 +1,6 @@
 # moon-mqtt
 
-MoonBit 写的 MQTT 3.1.1 客户端。浏览器里走 WebSocket，native 上走 C FFI TCP，两条路径共用同一份纯计算状态机。QoS0/1/2 全支持，QoS2 exactly-once 和持久会话恢复是重点。MQTT 5.0 在路线图上。
+MoonBit 写的 MQTT 3.1.1 客户端。浏览器里走 WebSocket，native 上走 C FFI TCP，两条路径共用 `protocol/` 与 `session/` 纯计算层。QoS0/1/2 全支持，QoS2 exactly-once 和持久会话恢复是重点。MQTT 5.0 在路线图上。
 
 做它的原因很直接：MoonBit 这边缺一个能在浏览器里直连 broker、又把 QoS2 做完整的客户端。
 
@@ -15,7 +15,7 @@ MoonBit 写的 MQTT 3.1.1 客户端。浏览器里走 WebSocket，native 上走 
 需要 [MoonBit 工具链](https://www.moonbitlang.com/)（moon ≥ 0.1.20261012）。浏览器项目用 js 后端，native 用默认后端。
 
 ```bash
-moon add Duckweed/moon-mqtt@0.3.1
+moon add Duckweed/moon-mqtt@0.3.2
 ```
 
 也可以直接写进 `moon.mod`：
@@ -32,7 +32,7 @@ demo：https://duckweed-yhb.github.io/moon-mqtt/docs/demo/
 
 入口页：https://duckweed-yhb.github.io/moon-mqtt/docs/ 。页面源文件在 `docs/demo/`。
 
-页面连公共 EMQX `broker.emqx.io:8084`，订阅 `sensors/#` QoS1，收到 SUBACK 后发一条 QoS1 再收回自己的消息。点「强制断开（测试重连）」能走一次重连。
+页面连公共 EMQX `broker.emqx.io:8084`，订阅 `sensors/#` QoS1，收到 SUBACK 后发一条 QoS1 再收回自己的消息。点「强制断开（测试重连）」能走一次重连。完整 I/O 记录（首连、重连、QoS2）见 [docs/CASES.md](docs/CASES.md)。
 
 本地起服务：
 
@@ -173,7 +173,7 @@ client.disconnect()?
 
 ## 命令行验证
 
-js 产物也能在 Node 里跑，CI 和本地排查时不用每次开浏览器。`examples/ws-spike/` 编译成 js bundle 后连公共 EMQX，把每帧 hex 打出来：
+js 产物也能在 Node 里跑，本地排查时不用每次开浏览器。`examples/ws-spike/` 编译成 js bundle 后连公共 EMQX，把每帧 hex 打出来：
 
 ```powershell
 moon build --target js examples/ws-spike
@@ -243,23 +243,23 @@ sequenceDiagram
 - [x] `client/` 阻塞式高层 API（poll_loop 自动心跳、reconnect 自动 replay）
 - [x] `browser/` 浏览器高层 API（connect / connect_persistent / on_connect / on_suback / on_message / subscribe / publish / disconnect）
 - [x] 浏览器端到端实测：2026-10-22 无头 Chrome，首连、publish QoS1、收消息、强制断开后重连到 `session_present=1`
-- [x] `moon test --target wasm-gc` 77/77；`moon test --target native` 80/80
+- [x] `moon test --target wasm-gc` 82/82；`moon test --target native` 85/85
 - [x] `moon check --target js --deny-warn` 通过，0 警告
-- [x] 发布到 mooncakes（0.3.1）
+- [x] 发布到 mooncakes（0.3.2）
 
 ## 构建与测试
 
 ```bash
 moon check
 moon check --target js --deny-warn   # 0 警告
-moon test --target wasm-gc           # 77/77
-moon test --target native            # 80/80
+moon test --target wasm-gc           # 82/82
+moon test --target native            # 85/85
 moon run examples/pubsub
 moon run examples/resume
 pwsh scripts/build-demo.ps1          # 浏览器 demo
 ```
 
-CI（GitHub Actions，Linux / Windows 双矩阵）跑 check + build + 四后端 test + 示例运行。
+CI（GitHub Actions，Linux / Windows 双矩阵）跑 check + 四后端 build/test + 示例运行 + 两个浏览器 demo 构建。
 
 ## 手动验证（native 连真 broker）
 
@@ -279,7 +279,7 @@ mosquitto_sub -h 127.0.0.1 -t 'sensors/#' -v
 开发中用了 AI 编程工具，目标、技术路径、质量边界和开源合规由参赛者本人把控：
 
 - AI 辅助了报文编解码的样板代码、单测用例生成、README 初稿润色。
-- 人把控了选题、五层分层、QoS 状态机边界条件、C FFI 边界设计、已知限制的如实声明、与 mooncakes 现有项目的查重。
+- 人把控了选题、分层、QoS 状态机边界条件、C FFI 边界设计、已知限制的如实声明、与 mooncakes 现有项目的查重。
 - AI 生成的单测都由人对照 OASIS MQTT 3.1.1 规范核过断言；编解码有往返测试（encode → decode → 字段比对）；CI 四后端全绿才合并。
 - 不照搬其他开源项目代码（API 参考 MQTT.js / Paho C，实现是 MoonBit 重写）；不把 AI 生成的测试数据当真理。
 
@@ -288,9 +288,11 @@ mosquitto_sub -h 127.0.0.1 -t 'sensors/#' -v
 - **会话快照落盘**：`SessionStore` 提供 `snapshot()` / `restore()` 字节级原语，写盘由调用方自己做，库不碰文件。
 - **`transport/` 和 `client/` 仅 native**：依赖 C FFI socket。`protocol/`、`session/`、`core/` 四后端可测；浏览器走 `browser/` + WebSocket 胶水层，已端到端验证。`browser/` 仅 js 后端。
 - **阻塞式 API**：`client/` 是阻塞的，适合 CLI / 边缘遥测；高并发长连接要异步封装，当前没做。
-- **同步握手期间收到 PUBLISH**：`publish` 等 PUBACK/PUBREC/PUBCOMP、`subscribe` 等 SUBACK 时，如果 broker 推来订阅主题的 PUBLISH，当前代码报 `"expected XXX"` 并丢掉这帧。边发边收请用 `poll_loop` + `subscribe_with_handler`。
+- **同步握手期间收到 PUBLISH**：`publish` 等 PUBACK/PUBREC/PUBCOMP、`subscribe` 等 SUBACK 时，如果 broker 推来订阅主题的 PUBLISH，当前代码报 `"expected XXX"` 并丢掉这帧。边发边收请用 `poll_loop` + `subscribe_with_handler`；`poll_once` 处理入站 QoS2 已不再嵌套等 PUBREL。
 - **坏协议帧卡住缓冲**：`core/Framer` 遇到认不出的帧（剩余长度超 4 字节、保留报文类型等）会把这帧永久留在内部缓冲，后面的帧也就出不来，且不 reset。正常 broker 不会发这种帧；要防对端异常，得在调用方加超时。
-- **`client/` 层没有独立单测**：client 是 native + C FFI，wasm 后端实例化不了。它的正确性由纯层测试（wasm-gc 77 / native 80）加示例的端到端验证一起兜。
+- **读超时**：单次 socket 读有 5 秒超时（`wait_read`），CONNACK/PUBACK/PINGRESP 等同步等待不会永久挂起；极慢的分段帧仍可能超时返回 Err。
+- **浏览器自动重连上限**：`browser/` 断线后 1 秒重连，最多 3 次；超过后刷新页面才会重新建立连接。
+- **`client/` 层测试有限**：已有 3 个入参校验单测；connect / publish / subscribe 的真实读写链路仍靠示例与纯层测试（wasm-gc 82 / native 85）。native + C FFI 无法在 wasm 后端实例化。
 - **MQTT 5.0 本期不做**：预计 2027 Q1 评估基础字段，TLS 预计 2027 Q2。
 
 ## 许可证

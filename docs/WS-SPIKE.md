@@ -1,5 +1,8 @@
 # 初始 Spike：MQTT over WebSocket (wss) 握手验证
 
+> 归档记录（2026-10-20 ~ 10-22）。当前实现以 `browser/` 和 README 为准，本文保留当时的 Node / WebSocket 验证过程。
+> 文中的 `1 warnings` 是当时构建输出；现在 `moon check --target js --deny-warn` 为 0 警告。
+
 ## 基本信息
 
 - 日期：2026-10-20

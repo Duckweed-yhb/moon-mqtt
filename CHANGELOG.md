@@ -4,6 +4,25 @@
 
 ## [Unreleased]
 
+## [0.3.2] - 2026-10-22
+
+### Fixed
+
+- `client.poll_once` 处理入站 QoS2 不再嵌套阻塞等 PUBREL：PUBREC 后立即返回并派发，PUBREL 由后续 poll 回 PUBCOMP，避免插帧丢消息和 broker 无限重传。
+- 入站 QoS2 按 packet_id 去重（`core/` 与 `client/`），重复 PUBLISH 不再重复派发。
+- CONNACK 拒绝码不再切 Connected；`browser/` 的 `on_connect` 只在 Accepted 时触发。
+- `reconnect` 在 `session_present=false` 时清空本地在途；重连前关闭旧 socket，修掉 fd 泄漏。
+- 单次 socket 读加 5 秒超时，CONNACK/PUBACK/PINGRESP 不再永久挂起。
+- PUBLISH topic 按 UTF-8 字节长度校验；`decode_publish` 对越界长度返回 Err，不再 panic。
+- SUBACK 0x80 返回 Err，不再注册永远不会触发的 handler。
+- `UnknownPacketType` 上报真实报文类型；topic 过滤器拒绝非法写法，通配符不匹配 `$SYS`。
+- browser `disconnect` 不再触发自动重连；发送前检查 `readyState`；subscribe packet_id 与 `core/session` 共享。
+
+### Changed
+
+- 测试数 77/80 → 82/85。
+- 版本 0.3.1 → 0.3.2。
+
 ## [0.3.1] - 2026-10-22
 
 ### Changed
@@ -23,6 +42,7 @@
 ### Changed
 
 - 版本 0.2.0 → 0.3.0。
+- 测试数随 `core/` 新增用例增至 wasm-gc 77/77、native 80/80（74→77 / 77→80）。
 - `browser/` 的 JS FFI 边界改用 `FixedArray[Int]` 传字节，`moon check --target js --deny-warn` 通过，0 警告。
 - README 改成浏览器优先叙述：开头讲 WebSocket 宿主与 QoS0/1/2，新增「在线 demo」小节和无头 Chrome 实测日志；Node 运行降到「命令行验证」一节。安装版本同步 0.3.0。
 - 申报书压到一页，浏览器证据换成无头 Chrome 日志，测试数改为 wasm-gc 77/77、native 80/80。

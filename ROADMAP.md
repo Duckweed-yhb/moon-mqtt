@@ -1,52 +1,77 @@
-# moon-mqtt 评审反馈与 Roadmap
+# moon-mqtt Roadmap
 
-> 来源：2026-10-16 audit-codebase full 模式评审（AI-Readiness 18/21，Bug 78/100）
-> 更新：2026-10-19，对照官网 6 条验收标准复审
-
----
+> 更新：2026-10-22
+> 当前版本：0.3.2（mooncakes latest）
+> 状态：对照官网验收 9 条自检通过；浏览器 demo 已上线
 
 ## 总评
 
-- 结构已经够好，不需要大动
-- 真正的风险在 client 层：入站 PUBLISH 接收、read 超时、自动心跳三件事缺
-- 先修 bug 不修结构
+结构已经稳定，后续以补边界和补生态为主，不再动分层。
 
-## Phase 1 — 10/31 前冲复审（已完成 ✅）
+现在的分层：
 
-- [x] client 加 `subscribe_with_handler()` + `poll_once()` 入站派发（2026-10-16）
-- [x] QoS1/2 入站 PUBLISH 自动回 PUBACK / PUBREC+PUBREL+PUBCOMP
-- [x] 删掉不可变的 `connected` 字段（代码异味）
+- 纯计算：`protocol/` `session/` `core/`，四后端可测
+- 浏览器宿主：`browser/`（js 后端，WebSocket 胶水层）
+- native 宿主：`client/` + `transport/`（C FFI TCP）
 
-## Phase 2 — 10/31 前补完（已完成 ✅）
+## 已完成
 
-- [x] C 层 `read` 加 `SO_RCVTIMEO`（2026-10-17）—— `wait_read` 超时
-- [x] 自动 keep alive 心跳（2026-10-18）—— `poll_loop` 累计等待到 keep_alive 自动发 PINGREQ
-- [x] 自动重连（2026-10-18）—— `reconnect()` 带旧 SessionStore + session_present=true 自动 replay
-- [x] README 加 roadmap 段（2026-10-19）
-- [x] docs/ARCHITECTURE.md 一张图 + 分层职责 + 入站数据流 + 测试矩阵（2026-10-19）
-- [x] 手动验证步骤（连真 broker）+ AI 工具使用说明（2026-10-19）
-- [ ] client 层 mock 单测（工具链限制，做不了）
-  - MoonBit native 后端 blackbox test 跨包链接 transport C FFI 报 LNK2019
-  - 等 MoonBit 工具链支持跨包 C FFI 链接后再做
+### 0.1.x
 
-## Phase 3 — 11 月轮 / 后续（正常迭代）
+- 报文编解码、QoS2 状态机、native TCP、阻塞式 client、CI、mooncakes 发布
 
-- [ ] client.mbt 的 `Array[Bool]`/`Array[SessionStore]` workaround 重构（等 MoonBit 支持可变 struct 字段）
-- [ ] MQTT 5.0 CONNACK reason code 完整字段
-- [ ] TLS 接入
-- [ ] 入站 QoS2 PUBLISH 的去重（packet_id 记忆窗口）
-- [ ] will message 遗嘱测试
-- [ ] 会话快照落盘文件 I/O（native 层）
-- [ ] 异步封装（基于回调或 fiber）
+### 0.2.x
 
-## 已确认死路 / 不做
+- 出站 QoS1/2 在途追踪 + `replay()`
+- `core/` 抽成纯计算连接状态机，浏览器路径由它驱动；native 仍由 `client/` 自持读帧与握手
+- `docs/ARCHITECTURE.md`、测试矩阵、手动验证步骤、AI 工具说明
 
-- 不做自动重连循环（让调用方自己写，避免黑盒）
-- 不做异步/回调 IO（保持阻塞式，跟定位一致）
-- 不做 MQTT 5.0 的所有 reason code（先 3.1.1 打透）
+### 0.3.x（2026-10-22）
 
-## 评审时发现的已修 bug
+- `browser/` 高层 API：`connect` / `connect_opts` / `connect_persistent`，`on_connect` / `on_suback` / `on_message`，`subscribe` / `publish` / `disconnect`
+- `browser.publish` 支持 QoS0/1/2，QoS1/2 走 `core.publish()`，握手由 `core.feed()` 推进
+- `session_present=1` 时重放在途帧；浏览器 demo 实测 connect → suback → publish QoS1 → recv → 强制断开 → 重连
+- `docs/demo/` 静态页面 + `scripts/build-demo.ps1` + GitHub Pages
+- 架构图换成 SVG/PNG；README 改成浏览器优先，去掉竞品表
+- 0.3.1 对齐 README / CHANGELOG / `moon.mod`，修复 0.3.0 发布包内 README 仍写 `@0.2.1` 的问题
+
+### 0.3.2（2026-10-22 修复）
+
+- `client.poll_once` 入站 QoS2 不再嵌套阻塞等 PUBREL；PUBREL 由后续 poll 回 PUBCOMP
+- 入站 QoS2 按 packet_id 去重（core + client），重复 PUBLISH 不重复派发
+- CONNACK 拒绝码不再切 Connected；browser 的 `on_connect` 只在 Accepted 触发
+- reconnect 在 `session_present=false` 时清空本地在途；重连前关闭旧 socket，避免 fd 泄漏
+- 单次 socket 读加 5 秒超时；PUBLISH topic 按 UTF-8 字节长度校验；`decode_publish` 越界返回 Err
+- SUBACK 0x80 返回 Err；`UnknownPacketType` 报真实类型；通配符不匹配 `$SYS`
+- browser `disconnect` 不自动重连；发送前检查 `readyState`；subscribe packet_id 与 core 共享
+
+### 工程质量
+
+- `moon test --target wasm-gc` 82/82
+- `moon test --target native` 85/85
+- `moon check --target js --deny-warn` 通过，0 警告
+- CI：check + 四后端 build/test + 两个浏览器 demo 构建
+
+## 下一阶段（11 月–1 月）
+
+- [ ] MQTT 5.0 基础字段（CONNACK reason code、属性长度），2027 Q1 评估
+- [ ] TLS 接入，2027 Q2
+- [ ] Will message 的端到端测试
+- [ ] 会话快照落盘（native 层文件 I/O）
+- [ ] 异步 / 回调封装（保持 native 阻塞式 API 不变，另起一层）
+- [ ] `client/` 层 mock 单测：等 MoonBit 支持跨包 C FFI 链接后再做
+- [ ] 浏览器 demo 增加手动 publish 输入框（当前是 SUBACK 后自动发一条）
+
+## 不做
+
+- native `client/` 不做后台自动重连循环：调用方在 `poll_loop` 失败后自己调 `reconnect()`，避免黑盒
+  - 浏览器 `browser/` 是高层的，内置最多 3 次、每次间隔 1 秒的自动重连
+- native 不做异步 / 回调 IO：保持阻塞式，定位是 CLI 与边缘遥测
+- 不做 MQTT 5.0 的全量 reason code：先把 3.1.1 打透
+
+## 历史 bug 修复
 
 - `set_session_store` 缺 `-> Unit`（wasm-gc 宽松没报，native 严格报）
 - `qos != AtMostOnce` 不能直接比较 enum variant（要 match）
 - `Array[Bool]` workaround 是因为 struct 字段不可变
+- JS FFI 边界从 `Array[Int]` 改成 `FixedArray[Int]`，消除 3 条弃用警告

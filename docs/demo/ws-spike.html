@@ -174,6 +174,7 @@
   <details>
     <summary>端到端证据（2026-10-22，Node 22 实测，供评委核对）</summary>
     <div class="body">
+      <p style="margin:0 0 8px;color:var(--muted);font-size:12.5px">浏览器侧证据见 README「在线 demo」的无头 Chrome 日志与主页控制台；这里是 Node 侧的 QoS2 协议层记录。</p>
       <p style="margin:0 0 4px;color:var(--muted);font-size:12.5px">QoS2 发布握手：</p>
       <pre>PUBLISH(pid=1) → broker 回 PUBREC(0x50 02 00 01)
              → core.feed() 自动产出 PUBREL(0x62 02 00 01)

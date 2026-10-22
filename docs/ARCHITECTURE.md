@@ -1,30 +1,17 @@
 # 架构
 
-moon-mqtt 分五层，自下而上三个纯计算包 + 两个 native 包：
+moon-mqtt 由六个包组成：三个纯计算包、一个 js 宿主包、两个 native 包。
 
-```
-┌──────────────────────────────────────────────────────────┐
-│  client/    MqttClient（阻塞式高层 API）      native only │
-│  connect / publish / subscribe / poll_loop / reconnect   │
-├──────────────────────────────────────────────────────────┤
-│  core/      ClientCore 连接状态机              四后端可测 │
-│  start() / feed() 纯函数，自动 QoS1/2 握手应答            │
-├──────────────────────────────────────────────────────────┤
-│  session/   SessionStore（QoS 状态机）         四后端可测 │
-│  inflight 表 / packet_id 分配 / replay / snapshot         │
-├──────────────────────────────────────────────────────────┤
-│  protocol/  报文编解码                          四后端可测 │
-│  CONNECT/PUBLISH/SUBSCRIBE/PINGREQ/...                    │
-├──────────────────────────────────────────────────────────┤
-│  transport/ TcpClient（C FFI socket）         native only │
-│  connect / read_some / write / wait_read                  │
-└──────────────────────────────────────────────────────────┘
-```
+![架构总览](assets/architecture.png)
+
+- **纯计算**：`protocol/` `session/` `core/`，四后端可测
+- **浏览器宿主**：`browser/`，js 后端，持有 `core/ClientCore`，WebSocket 由 JS 胶水层持有
+- **native 宿主**：`client/` + `transport/`，C FFI TCP
 
 两条运行路径共用 `protocol/` 与 `session/`：
 
-- **native 路径**：`client/` 直接组合 `protocol/` + `session/` + `transport/`，走 C FFI TCP，不经过 `core/`。
-- **浏览器 / Node 路径**：`client/` 不参与，JS 胶水层持有 WebSocket，调 `core/` 的 `start()/feed()` 纯函数。
+- **浏览器**：`browser/` 持有 `core/`；JS 胶水层持有 WebSocket，`onopen` 发 CONNECT，`onmessage` 把字节喂给 `core.feed()`，出站字节写回 broker。
+- **native**：`client/` 组合 `protocol/` + `session/` + `transport/`，走 C FFI TCP，不经过 `core/`。
 
 ## 分层职责
 
@@ -66,7 +53,20 @@ moon-mqtt 分五层，自下而上三个纯计算包 + 两个 native 包：
 - `on_transport_close()` / `reconnect_bytes()`：断线时状态切 Disconnected、SessionStore 保留；重连时重置状态、清 framer 残留缓冲、重新编码 CONNECT
 - `Framer`：把 socket 推过来的字节流拆成完整 MQTT 帧，处理半包 / 粘包
 
-`core/` 不 import 任何 WebSocket / socket 依赖，同一份代码在 native（C FFI TCP）和 js/wasm（WebSocket）下零改动编译。
+`core/` 不 import 任何 WebSocket / socket 依赖，同一份代码在四个后端下零改动编译。native 上 `core/` 供测试使用，`client/` 不走它；浏览器路径由 `core/` 驱动。
+
+### `browser/`（js only）
+
+浏览器宿主的高层封装。内部持有 `core/ClientCore`，WebSocket 对象由 JS 胶水层持有，MoonBit 侧只做纯计算。
+
+- `connect(host, port, client_id)`：WSS + `clean_session=true`
+- `connect_opts(host, port, opts)`：自定义 CONNECT，可带认证 / 遗嘱 / clean_session
+- `connect_persistent(host, port, client_id)`：`clean_session=false`，重连后拿回同一个会话
+- `on_connect` / `on_suback` / `on_message`：CONNACK、SUBACK、PUBLISH 回调
+- `subscribe` / `publish` / `disconnect`
+- `publish` 支持 QoS0/1/2：QoS1/2 走 `core.publish()`，packet_id 与在途由 `core/` + `session/` 管理
+- 断线后 1 秒自动重连，最多 3 次；`session_present=1` 时把在途帧 replay 出去
+- 限制：单连接全局状态，一个页面实例只支持一个 client
 
 ### `transport/`（native only）
 
@@ -131,14 +131,17 @@ broker ──WebSocket──► JS onmessage
 
 ## 测试矩阵
 
-| 包 | wasm | wasm-gc | js | native |
+| 包 / 示例 | wasm | wasm-gc | js | native |
 |---|---|---|---|---|
 | `protocol/` | ✅ | ✅ | ✅ | ✅ |
 | `session/` | ✅ | ✅ | ✅ | ✅ |
 | `core/` | ✅ | ✅ | ✅ | ✅ |
+| `browser/` | - | - | ✅ | - |
 | `transport/` | - | - | - | ✅ |
 | `client/` | - | - | - | ✅（无独立单测，由示例 + 纯层测试保障） |
 | `examples/pubsub` | - | ✅ | - | ✅ |
 | `examples/resume` | - | ✅ | - | ✅ |
+| `examples/browser-demo` | - | - | ✅ | - |
+| `examples/ws-spike` | - | - | ✅ | - |
 
-纯计算层（protocol/session/core）四后端可测，证明"可移植的库"是构建期可验证的事实；native 层（transport/client）依赖 C FFI，只在 native 后端编译。
+`moon test --target wasm-gc` 82/82，`moon test --target native` 85/85；`moon check --target js --deny-warn` 0 警告。纯计算层四后端可测，`browser/` 与两个浏览器示例只编 js，`transport/` 与 `client/` 只编 native。

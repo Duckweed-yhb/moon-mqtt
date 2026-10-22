@@ -49,6 +49,16 @@
   <button onclick="start()">连接 EMQX Broker</button>
   <div id="console"></div>
 
+  <h2 style="color:#ce9178;font-size:14px;margin-top:20px">端到端证据（2026-10-22，Node 22 实测）</h2>
+  <div style="background:#0d0d0d;border:1px solid #333;border-radius:4px;padding:12px;font-size:12px;line-height:1.6;color:#d4d4d4;white-space:pre-wrap;overflow-x:auto"><span style="color:#4ec9b0">QoS2 发布握手：</span>
+  PUBLISH(pid=1) → broker 回 PUBREC(0x50 02 00 01) → core.feed() 自动产出 PUBREL(0x62 02 00 01) → broker 回 PUBCOMP(0x70 02 00 01) → 在途清空。
+  全程无手写握手字节，全由 core/ClientCore 纯函数驱动。
+
+<span style="color:#569cd6">断线重连：</span>
+  onclose → on_transport_close() → state=Disconnected
+  → 1s 后 reconnect attempt #1 → 新 CONNECT → 新 CONNACK → 自动 SUBSCRIBE(pid=2) + QoS2 PUBLISH → 继续收 PUBLISH。
+  最多重连 3 次（pid 递增 1→2→3）。</div>
+
   <script>
     const consoleEl = document.getElementById('console');
 

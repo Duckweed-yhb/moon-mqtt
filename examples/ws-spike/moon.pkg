@@ -13,4 +13,5 @@ pkgtype(kind: "executable")
 import {
   "Duckweed/moon-mqtt/core" @core,
   "Duckweed/moon-mqtt/protocol" @protocol,
+  "Duckweed/moon-mqtt/session" @session,
 }

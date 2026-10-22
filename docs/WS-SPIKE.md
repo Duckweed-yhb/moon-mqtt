@@ -99,3 +99,65 @@ node "_build\js\debug\build\examples\ws-spike\ws-spike.js"
 - `moon check --target wasm-gc`：0 警告 0 错误
 - `moon test --target wasm-gc`：66/66 通过
 - `moon test --target native`：全部通过
+
+---
+
+## QoS2 发布 + 断线自动重连（2026-10-22）
+
+在原有 CONNECT → CONNACK → SUBSCRIBE → SUBACK → 收 PUBLISH 基础上，补了两个端到端能力：
+
+1. **QoS2 出站 PUBLISH 完整握手**：浏览器侧发 QoS2 PUBLISH，core 自动完成 PUBREC → PUBREL → PUBCOMP 三段握手。
+2. **断线恢复**：WebSocket 关闭后 1 秒自动重连，重新发 CONNECT → CONNACK → SUBSCRIBE → 继续收 PUBLISH，最多重连 3 次。
+
+### 实测输出（Node 22，连公共 EMQX broker）
+
+```
+[spike] QoS2 PUBLISH prepared: pid=1 topic=sensors/qos2 payload=qos2 (1 bytes)
+[spike] core start() generated CONNECT, 22 bytes
+[spike] onopen, sending CONNECT, 22 bytes
+[spike] onmessage hex: 20 02 00 00          # CONNACK accepted
+[spike] core feed() events: [Connack(session_present=0, return_code=Accepted)]
+[spike] sending SUBSCRIBE pid=1 sensors/# QoS1
+[spike] sending QoS2 PUBLISH sensors/qos2 (22 bytes)
+[spike] sending outgoing 38 bytes back to broker
+[spike] onmessage hex: 90 03 00 01 01     # SUBACK pid=1
+[spike] core feed() events: [Suback(subscribed to sensors/#)]
+[spike] onmessage hex: 50 02 00 01         # PUBREC pid=1
+[spike] core feed() events: []
+[spike] sending outgoing 4 bytes back to broker   # ← core 自动产出 PUBREL (0x62 0x02 0x00 0x01)
+[spike] onmessage hex: 32 14 00 0C 73 65 6E 73 6F 72 73 2F 71 6F 73 32 00 01 71 6F 73 32
+[spike] core feed() events: [Publish(topic=sensors/qos2, payload=71 6F 73 32)]
+[spike] sending outgoing 4 bytes back to broker   # ← core 自动回 PUBACK（broker 按订阅 QoS1 回传）
+[spike] onmessage hex: 70 02 00 01         # PUBCOMP pid=1
+[spike] core feed() events: []             # ← 在途 QoS2 清空，握手完成
+```
+
+QoS2 握手闭环：`发 PUBLISH → broker 回 PUBREC → core.feed() 自动产出 PUBREL → 发 PUBREL → broker 回 PUBCOMP → core.feed() 清在途`。全程没有手写握手字节，全由 `core/ClientCore` 纯函数驱动。
+
+### 断线自动重连（12 秒后主动 close 模拟网络断开）
+
+```
+[spike] === 模拟网络断开，主动 close ===
+[spike] onclose code=1005 reason=
+[spike] core.on_transport_close() → state=Disconnected
+[spike] reconnect attempt #1 scheduled in 1s (max 3)
+[spike] connecting to wss://broker.emqx.io:8084/mqtt (subprotocol mqtt)
+[spike] reconnect attempt #1 onopen, fetching fresh CONNECT
+[spike] core.reconnect_bytes() → 22 bytes (state=Connecting, session preserved)
+[spike] onopen, sending CONNECT, 22 bytes
+[spike] onmessage hex: 20 02 00 00          # 新 CONNACK
+[spike] core feed() events: [Connack(session_present=0, return_code=Accepted)]
+[spike] sending SUBSCRIBE pid=2 sensors/# QoS1
+[spike] sending QoS2 PUBLISH sensors/qos2 (22 bytes)
+[spike] onmessage hex: 90 03 00 02 01      # SUBACK pid=2
+[spike] onmessage hex: 50 02 00 01          # PUBREC pid=1（新一轮 QoS2 握手）
+[spike] sending outgoing 4 bytes back to broker
+```
+
+重连闭环：`onclose → on_transport_close() 切 Disconnected → 1s 后新建 WebSocket → onopen 调 reconnect_bytes() 拿新 CONNECT → 新 CONNACK → 自动 SUBSCRIBE + QoS2 PUBLISH`。pid 计数器从 1 递增到 2、3（最多 3 次重连）。
+
+### 实现方式
+
+- QoS2 出站：`main()` 里用 `@session.record_outbound(empty_store, qos2_pkt)` 预分配 pid 并记录到 SessionStore，再 `@core.ClientCore::with_session(opts, store)` 构造 core。CONNACK 后 MoonBit 侧把预编码的 QoS2 PUBLISH 字节和 SUBSCRIBE 字节一起 prepend 给 JS 发出。
+- 断线重连：JS 胶水层 `onclose` 回调调 `spike_on_transport_close()`，然后 `setTimeout(openWs, 1000)` 重连；新 `onopen` 调 `spike_reconnect_bytes()` 重新编码 CONNECT。
+

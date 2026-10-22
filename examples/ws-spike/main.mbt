@@ -14,6 +14,9 @@ let g_core : Array[@core.ClientCore?] = [None]
 /// 出站 packet_id 分配计数器（SUBSCRIBE 用，spike 阶段单连接单订阅）。
 let g_next_pid : Array[Int] = [1]
 
+/// 预记录的 QoS2 PUBLISH 字节（main 里构造，CONNACK 后由 JS 发出）。
+let g_qos2_pub : Array[Array[Int]] = [[]]
+
 /// 把一个字节（0..=255）转成两位大写 hex 字符串。
 fn byte_to_hex(b : Int) -> String {
   let hi = b / 16
@@ -129,6 +132,14 @@ pub fn spike_on_bytes(bytes : Array[Int]) -> Array[Int] {
                 let pkt = @protocol.SubscribePacket::new(pid, [sub])
                 prepend = @protocol.encode_subscribe(pkt)
                 println("[spike] sending SUBSCRIBE pid=" + pid.to_string() + " sensors/# QoS1")
+                // 同时发送预记录的 QoS2 PUBLISH（pid 已在 SessionStore 中分配）
+                println(
+                  "[spike] sending QoS2 PUBLISH sensors/qos2 (" +
+                    g_qos2_pub[0].length().to_string() + " bytes)"
+                )
+                for b in g_qos2_pub[0] {
+                  prepend.push(b)
+                }
               }
               _ => ()
             }
@@ -251,6 +262,11 @@ extern "js" fn run_ws_spike(connect_bytes : Array[Int]) -> Unit =
   #|        console.log("[spike] max reconnect attempts (" + MAX_RECONNECT + ") reached, giving up");
   #|      }
   #|    };
+  #|    // 12 秒后主动 close，模拟网络断开，触发 onclose → 1s 后自动重连
+  #|    setTimeout(function() {
+  #|      console.log("[spike] === 模拟网络断开，主动 close ===");
+  #|      ws.close();
+  #|    }, 12000);
   #|  }
   #|  openWs();
   #|}
@@ -263,11 +279,32 @@ fn main() -> Unit {
   let _ = spike_on_bytes([])
   let _ = spike_on_transport_close()
   let _ = spike_reconnect_bytes()
-  let core = @core.ClientCore::new(@protocol.ConnectPacket::new("ws-spike"))
-  let connect_bytes = core.start()
-  println(
-    "[spike] core start() generated CONNECT, " + connect_bytes.length().to_string() + " bytes"
+
+  // QoS2 发布演示：预构造一条 QoS2 PUBLISH，经 record_outbound 分配 packet_id
+  // 并记录到 SessionStore。这样 core.feed() 收到 broker 回的 PUBREC 时，
+  // 会自动产出 PUBREL 字节；收到 PUBCOMP 时清掉在途——完整 QoS2 握手。
+  let qos2_pkt = @protocol.PublishPacket::new(
+    "sensors/qos2", [0x71, 0x6F, 0x73, 0x32], @protocol.qos2(), false, false, 0
   )
-  g_core[0] = Some(core)
-  run_ws_spike(connect_bytes)
+  match @session.record_outbound(@session.SessionStore::new(), qos2_pkt) {
+    (store, pid) => {
+      let pkt_with_pid = qos2_pkt.with_packet_id(pid)
+      g_qos2_pub[0] = @protocol.encode_publish(pkt_with_pid)
+      println(
+        "[spike] QoS2 PUBLISH prepared: pid=" + pid.to_string() +
+          " topic=sensors/qos2 payload=qos2 (" +
+          g_qos2_pub.length().to_string() + " bytes)"
+      )
+      // core 带上预记录的 SessionStore（在途 QoS2 PUBLISH）
+      let core = @core.ClientCore::with_session(
+        @protocol.ConnectPacket::new("ws-spike"), store
+      )
+      let connect_bytes = core.start()
+      println(
+        "[spike] core start() generated CONNECT, " + connect_bytes.length().to_string() + " bytes"
+      )
+      g_core[0] = Some(core)
+      run_ws_spike(connect_bytes)
+    }
+  }
 }

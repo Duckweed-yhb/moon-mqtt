@@ -1,11 +1,11 @@
 ///|
-/// examples/ws-spike — Day 0 spike：MQTT over WebSocket (wss) 握手验证
+/// examples/ws-spike — spike：MQTT over WebSocket (wss) 握手验证
 ///
 /// 用 MoonBit js 后端 + extern "js" 调浏览器/Node WebSocket，连
 /// wss://broker.emqx.io:8084/mqtt（子协议 mqtt），发 MQTT 3.1.1 CONNECT，
 /// 收 CONNACK 并打 hex。
 ///
-/// Day 2 起：CONNECT 帧不再手写，改由 @core.ClientCore.start() 生成；
+/// CONNECT 帧不再手写，改由 @core.ClientCore.start() 生成；
 /// onmessage 收到字节后用 @core.ClientCore.feed() 喂给纯计算状态机，
 /// 打印 CoreEvent。JS 胶水仍持有 WebSocket，MoonBit 侧只做纯计算。
 supported_targets = "js"

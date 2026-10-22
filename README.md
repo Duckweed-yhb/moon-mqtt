@@ -37,6 +37,7 @@ import {
 ```bash
 moon run examples/pubsub    # PUBLISH 编解码往返，不连 broker
 moon run examples/resume    # QoS2 中断重连 / 会话恢复时间线（纯计算）
+# 第三个 examples/ws-spike 是浏览器 WebSocket 端到端，见下方「浏览器 WebSocket 连接」章节
 ```
 
 ### pubsub：报文编解码
@@ -277,6 +278,7 @@ mosquitto_sub -h 127.0.0.1 -t 'sensors/#' -v
 - **`transport/` 与 `client/` 仅 native**：依赖 C FFI socket。`protocol/`、`session/`、`core/` 四后端可测。浏览器场景通过 WebSocket 胶水层接入（ws-spike 已验证），正式浏览器 client 封装未提供。
 - **阻塞式 API**：`client/` 为阻塞式，适合 CLI / 边缘遥测；高并发长连接场景需要异步封装，当前未提供。
 - **同步握手期间的入站 PUBLISH**：`publish` 等 PUBACK/PUBREC/PUBCOMP、`subscribe` 等 SUBACK 时，若 broker 恰好推来订阅主题的 PUBLISH，当前代码返回 `"expected XXX"` 错误并丢弃该帧。边发布边接收应改用 `poll_loop` + `subscribe_with_handler`。
+- **坏协议帧卡缓冲**：`core/Framer` 遇到无法识别的帧（剩余长度 >4 字节、保留报文类型等）会把这帧永久留在内部缓冲里，不再产出后续帧，也不 reset 缓冲。正常 broker 不会发这种帧；若需要对端异常时主动断开，需在调用方加超时检测。
 - **`client/` 层无独立单测**：client 是 native + C FFI，无法在 wasm 后端实例化；其正确性由 protocol/session/core 纯层测试（wasm-gc 74 / native 77）+ 三个示例手动/端到端验证共同保障。
 - **MQTT 5.0 本期不做**：预计 2027 Q1 评估基础字段。TLS 预计 2027 Q2。
 

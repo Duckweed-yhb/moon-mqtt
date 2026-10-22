@@ -1,6 +1,6 @@
 /// 连接状态机。
 ///
-/// Day 1 最小状态机：
+/// 最小连接状态机：
 /// - Disconnected：未连接 / 已断开。
 /// - Connecting：已 start() 发出 CONNECT，等 CONNACK。
 /// - Connected：已收到 CONNACK(ConnectionAccepted)，可收发 PUBLISH / PING。

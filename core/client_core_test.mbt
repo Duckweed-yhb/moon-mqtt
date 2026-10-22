@@ -1,4 +1,4 @@
-/// Day 1 单测：CONNECT 黄金字节 / CONNACK / QoS0 PUBLISH 往返 / 半包 / 粘包。
+/// 单测：CONNECT 黄金字节 / CONNACK / QoS0 PUBLISH 往返 / 半包 / 粘包。
 ///
 /// 注：本文件是 _test.mbt，按仓库惯例所有当前包类型加 @core. 前缀，
 /// 跨包类型加 @protocol. 前缀。跨包 enum variant 不能直接构造
@@ -71,7 +71,7 @@ test "qos0 publish roundtrip" {
   match core.feed(frame) {
     (events, outgoing) => {
       assert_eq(events.length(), 1)
-      assert_eq(outgoing.length(), 0) // Day 1 不自动回 PUBACK
+      assert_eq(outgoing.length(), 0) // QoS0 不自动回 PUBACK
       match events[0] {
         @core.CoreEvent::PublishReceived(p) => {
           assert_eq(p.topic, "a/b")
@@ -159,7 +159,7 @@ test "framer leftover buffer drains on next feed" {
   assert_eq(f.len(), 0)
 }
 
-// ---------- Day 2：QoS1/2 自动握手 ----------
+// ---------- QoS1/2 自动握手 ----------
 
 // 构造一条 QoS1 PUBLISH 帧（topic="a/b"，payload=[0x01]，packet_id=7）。
 // 字节 = 固定头(0x32, 0x08) + topic(00 02 61 2F 62) + pid(00 07) + payload(01)

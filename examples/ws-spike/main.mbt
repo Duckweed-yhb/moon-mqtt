@@ -1,6 +1,6 @@
-/// examples/ws-spike — Day 2：core/ 驱动的 MQTT over WebSocket 握手验证
+/// examples/ws-spike — core/ 驱动的 MQTT over WebSocket 握手验证
 ///
-/// 从 Day 0 的"手写字节"迁移到 B 方案：JS 胶水持有 WebSocket，
+/// 从最初的"手写字节"迁移到 B 方案：JS 胶水持有 WebSocket，
 /// MoonBit 侧只做纯计算：
 /// - @core.ClientCore.start() 生成 CONNECT 帧字节；
 /// - onmessage 收到 broker 字节后，用 @core.ClientCore.feed() 喂给状态机，
@@ -69,7 +69,7 @@ fn bytes_to_hex(bytes : Array[Int]) -> String {
   return s
 }
 
-/// 把 CoreEvent 数组格式化成一行可读文本，替代 Debug derive（Day 1 CoreEvent 未 derive）。
+/// 把 CoreEvent 数组格式化成一行可读文本，替代 Debug derive（CoreEvent 未 derive）。
 fn format_events(events : Array[@core.CoreEvent]) -> String {
   let mut s = "["
   for i in 0..<events.length() {

@@ -7,11 +7,11 @@
 /// Framer 内部维护一个残留缓冲，把到齐的完整帧吐出来，剩余字节留在缓冲里
 /// 等下一次 feed。
 ///
-/// 错误语义（Day 1 约定）：
+/// 错误语义约定：
 /// - `decode_fixed_header` 返回 Err 时一律视为「半包，等下一批字节」并停止本轮。
 ///   这覆盖了最常见的「剩余长度还没到齐」场景。
 /// - 若真的是协议层错误（剩余长度 >4 字节 / 保留报文类型），本帧会一直卡在
-///   缓冲里、永远不会产出——Day 1 不做 fatal-reset，留 Day 2 加显式 reset 钩子。
+///   缓冲里、永远不会产出——当前不做 fatal-reset，留后续加显式 reset 钩子。
 ///
 /// 每帧返回的 Array[Int] 都包含完整固定头（第一字节 + 剩余长度变长编码），
 /// 可以直接喂给 `@protocol.decode_packet`。
@@ -45,8 +45,8 @@ pub fn Framer::feed(self : Framer, bytes : Array[Int]) -> Array[Array[Int]] {
   while !partial && self.buf.length() > 0 {
     match @protocol.decode_fixed_header(self.buf, 0) {
       Err(_) => {
-        // Day 1：半包，等下一批字节。
-        // 真协议错误（>4 字节剩余长度 / 保留类型）会卡住缓冲，Day 2 加 reset。
+        // 半包，等下一批字节。
+        // 真协议错误（>4 字节剩余长度 / 保留类型）会卡住缓冲，后续加 reset。
         partial = true
       }
       Ok((_t, _flags, rlen, header_end)) => {

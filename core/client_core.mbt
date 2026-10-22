@@ -4,7 +4,7 @@
 /// - `start()`：socket 打开后调用，返回 CONNECT 帧字节让胶水层发出去。
 /// - `feed(bytes)`：socket 收到字节后调用，返回 (事件列表, 出站字节列表)。
 ///
-/// Day 2 范围：
+/// 当前范围：
 /// - CONNECT / CONNACK / PUBLISH / PINGREQ / PINGRESP 最小状态机。
 /// - QoS1/2 自动握手：
 ///   * 入站 QoS1 PUBLISH → 自动回 PUBACK；
@@ -13,7 +13,7 @@
 ///   * 入站 PUBACK/PUBREC/PUBCOMP 作为出站在途握手的应答，驱动
 ///     `@session.SessionStore` 状态推进（on_puback / on_pubrec / on_pubcomp），
 ///     其中 on_pubrec 还会产出 PUBREL 字节（出站 QoS2 握手）。
-/// - 出站字节列表 Day 2 起由上述自动握手产生，胶水层需把返回的第二元素
+/// - 出站字节列表由上述自动握手产生，胶水层需把返回的第二元素
 ///   原样写回 socket。
 ///
 /// 注：CoreEvent 不 derive(Eq, Debug)，因为 protocol 包的 Connack / PublishPacket /
@@ -90,7 +90,7 @@ fn append_bytes(out : Array[Int], src : Array[Int]) -> Unit {
 
 /// 喂入 socket 收到的字节，返回 (事件列表, 出站字节列表)。
 ///
-/// Day 2 出站字节列表：
+/// 出站字节列表：
 /// - 收到 QoS1 PUBLISH → 追加 PUBACK(packet_id)；
 /// - 收到 QoS2 PUBLISH → 追加 PUBREC(packet_id)；
 /// - 收到 PUBREL → 追加 PUBCOMP(packet_id)；
@@ -162,7 +162,7 @@ pub fn ClientCore::feed(
             self.session = @session.on_pubcomp(self.session, pid)
           }
           @protocol.IncomingPacket::Unsuback(_) => {
-            // UNSUBACK：客户端发起 UNSUBSCRIBE 的应答，Day 2 不处理。
+            // UNSUBACK：客户端发起 UNSUBSCRIBE 的应答，当前版本不处理。
             ()
           }
         }
@@ -173,7 +173,7 @@ pub fn ClientCore::feed(
 }
 
 /// 便利方法：返回 QoS0 PUBLISH 编码字节（胶水层直接发出）。
-/// Day 2 未扩展为 QoS1/2：出站 QoS1/2 的 record_outbound 接入留后续。
+/// 当前版本未扩展为 QoS1/2：出站 QoS1/2 的 record_outbound 接入留后续。
 pub fn ClientCore::publish(
   self : ClientCore, topic : String, payload : Array[Int]
 ) -> Array[Int] {

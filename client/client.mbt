@@ -15,6 +15,38 @@ fn read_timeout_ms() -> Int {
   5000
 }
 
+/// 连接抽象：`client` 只依赖这四个动作，不直接依赖具体 socket 实现。
+///
+/// 生产路径由 `@transport.TcpClient` 实现（真实 TCP）；单测由
+/// `client_wbtest.mbt` 里的脚本化假连接实现，用来驱动 connect / publish /
+/// subscribe / poll_once 的完整报文交接，不需要真实 broker。
+///
+/// 之所以是 `pub`：`MqttClient` 是 pub 类型，它的字段类型不能引用 priv
+/// trait。这是内部接缝，不打算让使用者自己实现；对外 API 仍是
+/// `connect_opts` / `publish` / `subscribe` / `poll_loop` 这一套。
+pub trait Conn {
+  write(Self, Array[Int]) -> Result[Unit, String]
+  read_some(Self, Int) -> Result[Array[Int], String]
+  wait_read(Self, Int) -> Result[Bool, String]
+  close(Self) -> Unit
+}
+
+impl Conn for @transport.TcpClient with write(self, bytes) {
+  @transport.TcpClient::write(self, bytes)
+}
+
+impl Conn for @transport.TcpClient with read_some(self, max) {
+  @transport.TcpClient::read_some(self, max)
+}
+
+impl Conn for @transport.TcpClient with wait_read(self, timeout_ms) {
+  @transport.TcpClient::wait_read(self, timeout_ms)
+}
+
+impl Conn for @transport.TcpClient with close(self) {
+  @transport.TcpClient::close(self)
+}
+
 /// 一条本地订阅注册：topic filter + 收到 PUBLISH 时的回调。
 /// 回调参数是 (topic, payload)，QoS 由入站 PUBLISH 帧自带。
 type SubHandler = (String, Array[Int]) -> Unit
@@ -26,7 +58,7 @@ struct SubscriptionReg {
 
 /// MQTT 客户端。
 pub struct MqttClient {
-  tcp : @transport.TcpClient
+  tcp : &Conn
   host : String
   port : Int
   opts : @protocol.ConnectPacket
@@ -60,6 +92,17 @@ pub fn connect_opts(
     Ok(t) => t
     Err(e) => return Err(e)
   }
+  handshake(tcp, host, port, pkt)
+}
+
+/// CONNECT/CONNACK 握手：在已建立的连接上发 CONNECT、等 CONNACK。
+///
+/// 从 `connect_opts` 抽出来，是为了让单测能注入假连接而不改公开 API；
+/// 生产路径仍由 `connect_opts` 用真实 TCP 调进来。任何失败路径都会
+/// 关闭连接，避免 fd 泄漏。
+fn handshake(
+  tcp : &Conn, host : String, port : Int, pkt : @protocol.ConnectPacket
+) -> Result[MqttClient, String] {
   // 发 CONNECT
   match tcp.write(@protocol.encode_connect(pkt)) {
     Err(e) => {
@@ -511,7 +554,7 @@ fn return_code_desc(code : @protocol.ConnectReturnCode) -> String {
 
 /// 从 TCP 读一帧 MQTT 报文：首字节 + 剩余长度变长 + 剩余字节。
 fn read_frame(
-  tcp : @transport.TcpClient, timeout_ms : Int
+  tcp : &Conn, timeout_ms : Int
 ) -> Result[Array[Int], String] {
   let frame : Array[Int] = []
   // 首字节
@@ -567,7 +610,7 @@ fn read_frame(
 }
 
 /// 读单字节。
-fn read_byte(tcp : @transport.TcpClient, timeout_ms : Int) -> Result[Int, String] {
+fn read_byte(tcp : &Conn, timeout_ms : Int) -> Result[Int, String] {
   match tcp.wait_read(timeout_ms) {
     Ok(false) => return Err("read timeout")
     Ok(true) => ()

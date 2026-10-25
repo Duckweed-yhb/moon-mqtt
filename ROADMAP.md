@@ -54,8 +54,8 @@
 
 ## 下一阶段（11 月–1 月）
 
-- [ ] MQTT 5.0 基础字段（CONNACK reason code、属性长度），2027 Q1 评估
-- [ ] TLS 接入，2027 Q2
+- [ ] MQTT 5.0 基础字段（CONNECT/PUBLISH properties、CONNACK reason code）：11–1 月先做基础字段，完整 5.0 后续评估
+- [ ] native TLS 接入：视工具链在 2027 评估
 - [ ] Will message 的端到端测试
 - [ ] 会话快照落盘（native 层文件 I/O）
 - [ ] 异步 / 回调封装（保持 native 阻塞式 API 不变，另起一层）

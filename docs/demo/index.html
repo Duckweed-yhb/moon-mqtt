@@ -154,7 +154,7 @@
       <li>连接公共 broker <code>broker.emqx.io:8084</code>（WebSocket + 子协议 <code>mqtt</code>，<code>clean_session=false</code>，每次刷新生成随机 client_id <code>moon-demo-xxxxxx</code>）。</li>
       <li>连上（CONNACK）后订阅 <code>sensors/#</code>，QoS1。</li>
       <li>收到 <strong>SUBACK</strong> 之后自动向 <code>sensors/hello</code> 发一条 <strong>QoS1</strong> 消息（payload <code>hi</code>，2 字节）——先订阅后发布，保证能在消息列表里看到自己收到的那条。</li>
-      <li>连接断开后 1 秒自动重连，最多 3 次；每次重连都会重发 CONNECT、重新订阅。</li>
+      <li>连接断开后 1 秒自动重连，<b>连续失败最多 3 次</b>（成功连上后计数归零，长期在线不会耗尽配额）；每次重连都会重发 CONNECT、重新订阅。</li>
     </ul>
     <p class="hint">点「强制断开（测试重连）」可以随时手动制造断线，看状态行从「已连接」→「重连中」→「已连接」的完整过程。公共 broker 偶尔限流或超时，刷新页面即可重试。</p>
   </div>

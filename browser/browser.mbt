@@ -254,8 +254,13 @@ extern "js" fn open_ws_ffi(url : String, connect_bytes : FixedArray[Int]) -> Uni
   #|    // 暴露给 browser_send 用
   #|    if (typeof globalThis !== "undefined") { globalThis.moonMQTTWs = ws; }
   #|    ws.onopen = function() {
+  #|      // 连上就说明这一轮恢复成功：先把「连续失败」计数归零。
+  #|      // 不归零的话，MAX_RECONNECT 会变成「整个页面生命周期总共只有 3 次」，
+  #|      // 成功重连也照扣配额，第 3 次之后再断线就永远不连了。
+  #|      const isReconnect = reconnectAttempts > 0;
+  #|      reconnectAttempts = 0;
   #|      let bytes = connectBytes;
-  #|      if (reconnectAttempts > 0) {
+  #|      if (isReconnect) {
   #|        bytes = _M0FP38Duckweed11moon_2dmqtt7browser25browser__reconnect__bytes();
   #|      }
   #|      const u8 = new Uint8Array(bytes.length);

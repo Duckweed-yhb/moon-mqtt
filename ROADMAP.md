@@ -48,7 +48,7 @@
 ### 工程质量
 
 - `moon test --target wasm-gc` 82/82
-- `moon test --target native` 85/85
+- `moon test --target native` 107/107
 - `moon check --target js --deny-warn` 通过，0 警告
 - CI：check + 四后端 build/test + 两个浏览器 demo 构建
 

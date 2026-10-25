@@ -3,16 +3,24 @@
 /// 在 WebSocket 上跑 MQTT 3.1.1，内部持有 @core.ClientCore 纯计算状态机。
 /// WebSocket 由 JS 胶水持有，MoonBit 侧只做纯计算。
 ///
-/// 用法：
+/// 用法（注意：**subscribe / publish 必须放在 on_connect 里**。WebSocket 是
+/// 异步打开的，connect() 返回时连接还没建立，此刻直接 subscribe 会被
+/// `browser_send` 丢弃并告警；publish 在未 Connected 时直接返回空字节）：
 /// ```moonbit
 /// let client = @browser.connect("broker.emqx.io", 8084, "my-browser-client")
 /// @browser.on_message(client, fn(topic, payload) {
 ///   println("recv " + topic)
 /// })
-/// @browser.subscribe(client, "sensors/#", @protocol.qos1())
-/// @browser.publish(client, "sensors/temp", [0x32, 0x33], @protocol.qos0())
-/// @browser.disconnect(client)
+/// @browser.on_suback(client, fn() {
+///   // SUBACK 之后发布，保证 broker 已建立订阅
+///   @browser.publish(client, "sensors/temp", [0x32, 0x33], @protocol.qos0())
+/// })
+/// @browser.on_connect(client, fn() {
+///   @browser.subscribe(client, "sensors/#", @protocol.qos1())
+/// })
 /// ```
+///
+/// 同一页面只支持一个客户端实例：状态存在模块级 `g_*` 槽位里。
 
 /// 收到 PUBLISH 消息时的回调：(topic, payload)。
 pub type MessageHandler = (String, Array[Int]) -> Unit

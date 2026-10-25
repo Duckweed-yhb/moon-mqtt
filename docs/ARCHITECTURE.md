@@ -138,10 +138,10 @@ broker ──WebSocket──► JS onmessage
 | `core/` | ✅ | ✅ | ✅ | ✅ |
 | `browser/` | - | - | ✅ | - |
 | `transport/` | - | - | - | ✅ |
-| `client/` | - | - | - | ✅（无独立单测，由示例 + 纯层测试保障） |
+| `client/` | - | - | - | ✅（`client_wbtest.mbt` 25 条，经 `Conn` 假连接覆盖主路径） |
 | `examples/pubsub` | - | ✅ | - | ✅ |
 | `examples/resume` | - | ✅ | - | ✅ |
 | `examples/browser-demo` | - | - | ✅ | - |
 | `examples/ws-spike` | - | - | ✅ | - |
 
-`moon test --target wasm-gc` 82/82，`moon test --target native` 85/85；`moon check --target js --deny-warn` 0 警告。纯计算层四后端可测，`browser/` 与两个浏览器示例只编 js，`transport/` 与 `client/` 只编 native。
+`moon test --target wasm-gc` 82/82，`moon test --target native` 107/107；`moon check --target js --deny-warn` 0 警告。纯计算层四后端可测，`browser/` 与两个浏览器示例只编 js，`transport/` 与 `client/` 只编 native。

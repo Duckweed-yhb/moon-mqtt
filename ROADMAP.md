@@ -1,7 +1,7 @@
 # moon-mqtt Roadmap
 
-> 更新：2026-10-22
-> 当前版本：0.3.2（mooncakes latest）
+> 更新：2026-10-26
+> 当前版本：0.3.3（mooncakes latest）
 > 状态：对照官网验收 9 条自检通过；浏览器 demo 已上线
 
 ## 总评
@@ -52,6 +52,12 @@
 - `moon check --target js --deny-warn` 通过，0 警告
 - CI：check + 四后端 build/test + 两个浏览器 demo 构建
 
+### 0.3.3（2026-10-26）
+
+- `client/` 层 `Conn` 接缝 + 脚本化假连接，补 22 条主路径单测（`client_wbtest.mbt` 共 25 条）
+- `browser/` 自动重连成功后归零失败计数：原 `MAX_RECONNECT=3` 实为「整页共 3 次」，现为「连续失败最多 3 次」
+- 测试数 82/85 → 82/107；README / `docs/ARCHITECTURE.md` / 申报书同步
+
 ## 下一阶段（11 月–1 月）
 
 - [ ] MQTT 5.0 基础字段（CONNECT/PUBLISH properties、CONNACK reason code）：11–1 月先做基础字段，完整 5.0 后续评估
@@ -59,7 +65,6 @@
 - [ ] Will message 的端到端测试
 - [ ] 会话快照落盘（native 层文件 I/O）
 - [ ] 异步 / 回调封装（保持 native 阻塞式 API 不变，另起一层）
-- [ ] `client/` 层 mock 单测：等 MoonBit 支持跨包 C FFI 链接后再做
 - [ ] 浏览器 demo 增加手动 publish 输入框（当前是 SUBACK 后自动发一条）
 
 ## 不做

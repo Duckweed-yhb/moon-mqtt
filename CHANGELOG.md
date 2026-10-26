@@ -4,6 +4,21 @@
 
 ## [Unreleased]
 
+## [0.3.3] - 2026-10-26
+
+### Added
+
+- `client/` 层引入 `Conn` 接缝（`impl Conn for @transport.TcpClient` 转发原实现）与脚本化假连接，补 22 条主路径单测：CONNECT/CONNACK 各分支、QoS0/1/2 发布握手、SUBACK、poll 派发与 QoS2 去重、自动心跳、断开、分帧上下限；`client_wbtest.mbt` 共 25 条。对外签名不变。
+
+### Fixed
+
+- `browser/` 自动重连成功后没有归零失败计数，`MAX_RECONNECT=3` 实际退化为「整个页面生命周期总共 3 次」；`onopen` 先记录是否重连再归零，语义改为「连续失败最多 3 次」，`docs/demo/browser-demo.js` 同步重建。
+
+### Changed
+
+- 测试数 82/85 → 82/107；README / ROADMAP / `docs/ARCHITECTURE.md` / 申报书同步口径。
+- 版本 0.3.2 → 0.3.3。
+
 ## [0.3.2] - 2026-10-22
 
 ### Fixed

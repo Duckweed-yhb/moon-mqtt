@@ -4,6 +4,10 @@
 
 ## [Unreleased]
 
+### Changed
+
+- `moon.mod` keywords：`blocking` → `websocket` / `browser` / `wasm`，与浏览器事件驱动的现定位对齐。
+
 ## [0.3.3] - 2026-10-26
 
 ### Added

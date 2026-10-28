@@ -10,4 +10,4 @@ repository = "https://github.com/Duckweed-yhb/moon-mqtt"
 
 license = "MIT"
 
-keywords = ["moonbit", "mqtt", "iot", "messaging", "protocol", "client", "blocking"]
+keywords = ["moonbit", "mqtt", "iot", "messaging", "protocol", "client", "websocket", "browser", "wasm"]

@@ -458,6 +458,16 @@
 
   /* 强制断开 */
   document.getElementById("btnDrop").addEventListener("click", function () {
+    // 只在真正「已连接」（readyState = OPEN = 1）时允许断开。
+    // connecting / closing 期间点这个按钮会把当前这次重连尝试直接打断，
+    // 而每一次被打断的尝试都算一次「连续失败」——连点三下就会耗尽
+    // 「最多 3 次」的配额，页面看起来像挂死。这是现场演示最容易踩的坑。
+    var live = globalThis.moonMQTTWs || globalThis.__moonDemoWs;
+    if (live && live.readyState !== 1) {
+      var label = ["connecting", "open", "closing", "closed"][live.readyState] || String(live.readyState);
+      addLog("info", "[page] 当前不在「已连接」状态（readyState=" + label + "），已忽略这次点击，避免消耗重连次数");
+      return;
+    }
     if (globalThis.moonMQTTWs) {
       addLog("warn", "[page] 强制断开：调用 globalThis.moonMQTTWs.close()，1 秒后应触发自动重连");
       setStatus("断开中 · 等待 onclose → 自动重连", "warn");

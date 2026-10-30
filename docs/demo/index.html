@@ -504,6 +504,130 @@
     if (!firstLog) { return; }
     if (statusEl.textContent === "脚本加载中 …") { setStatus("已启动 · 等待连接", "busy"); }
   }, 800);
+
+  /* ---------- ?autotest=1 自检模式 ----------
+   * 页面加载时检查 URL 参数；如果是 autotest，自动走
+   * 连接 → 订阅 → 收发 → 强制断开 → 重连 → 校验，结果输出到 DOM。
+   * 定位是「页面内自检 + 人工一眼可见」，不是完整自动化测试。
+   */
+  (function initAutotest() {
+    var params = new URLSearchParams(window.location.search);
+    if (!params.has("autotest")) { return; }
+
+    var steps = [];
+    var stepIdx = 0;
+    var autoPass = true;
+
+    function recordStep(name, ok, detail) {
+      steps.push({ name: name, ok: ok, detail: detail || "" });
+      if (!ok) { autoPass = false; }
+    }
+
+    function checkConnected() {
+      // 等到收到 suback（说明连接 + 订阅都成功）
+      var found = false;
+      var lines = logEl.querySelectorAll(".line");
+      for (var i = 0; i < lines.length; i++) {
+        if (lines[i].textContent.indexOf("[demo] suback") >= 0) { found = true; break; }
+      }
+      if (found) {
+        recordStep("connect + subscribe", true);
+        addLog("good", "[autotest] step 1: connected + subscribed");
+        return true;
+      }
+      return false;
+    }
+
+    function checkReceived() {
+      // 等到收到至少一条消息
+      if (recvCount > 0) {
+        recordStep("receive PUBLISH", true, recvCount + " msg(s)");
+        addLog("good", "[autotest] step 2: received " + recvCount + " message(s)");
+        return true;
+      }
+      return false;
+    }
+
+    function autoDrop() {
+      addLog("info", "[autotest] step 3: forcing disconnect to test reconnect ...");
+      var ws = globalThis.moonMQTTWs || globalThis.__moonDemoWs;
+      if (ws && ws.readyState === 1) {
+        try { ws.close(); } catch (e) { addLog("error", "[autotest] close() failed: " + fmtArg(e)); }
+        recordStep("force disconnect", true);
+        return true;
+      }
+      recordStep("force disconnect", false, "WebSocket not OPEN");
+      return false;
+    }
+
+    function checkReconnected() {
+      // 等到重连成功（再次出现 connected）
+      var found = false;
+      var lines = logEl.querySelectorAll(".line");
+      // 从后往前找，跳过第一次 connected
+      var seenFirst = false;
+      for (var i = lines.length - 1; i >= 0; i--) {
+        var txt = lines[i].textContent;
+        if (txt.indexOf("[demo] connected") >= 0) {
+          if (seenFirst) { found = true; break; }
+          seenFirst = true;
+        }
+      }
+      if (found) {
+        recordStep("reconnect", true);
+        addLog("good", "[autotest] step 4: reconnected after disconnect");
+        return true;
+      }
+      return false;
+    }
+
+    function finish() {
+      var resultEl = document.createElement("div");
+      resultEl.style.cssText = "margin-top:14px;padding:14px 16px;border-radius:10px;border:1px solid " +
+        (autoPass ? "var(--green)" : "var(--red)") + ";background:" +
+        (autoPass ? "rgba(85,209,135,.08)" : "rgba(247,118,142,.08)") + ";";
+      var title = document.createElement("div");
+      title.style.cssText = "font-size:16px;font-weight:700;color:" +
+        (autoPass ? "var(--green)" : "var(--red)") + ";margin-bottom:8px;";
+      title.textContent = autoPass ? "AUTOTEST: PASS" : "AUTOTEST: FAIL";
+      resultEl.appendChild(title);
+
+      steps.forEach(function (s) {
+        var row = document.createElement("div");
+        row.style.cssText = "font:12.5px/1.6 ui-monospace,Consolas,monospace;color:#cfd6e4;";
+        row.textContent = (s.ok ? "[OK] " : "[FAIL] ") + s.name + (s.detail ? " — " + s.detail : "");
+        resultEl.appendChild(row);
+      });
+
+      document.querySelector(".wrap").appendChild(resultEl);
+      addLog(autoPass ? "good" : "error", "[autotest] finished: " + (autoPass ? "PASS" : "FAIL"));
+    }
+
+    // 轮询驱动状态机
+    var stage = 0;
+    var attempts = 0;
+    var maxAttempts = 30; // 30 * 500ms = 15 秒超时
+
+    var timer = setInterval(function () {
+      attempts++;
+      if (attempts > maxAttempts) {
+        clearInterval(timer);
+        recordStep("timeout", false, "stage " + stage + " after 15s");
+        finish();
+        return;
+      }
+
+      if (stage === 0 && checkConnected()) {
+        stage = 1; attempts = 0;
+      } else if (stage === 1 && checkReceived()) {
+        stage = 2; attempts = 0;
+        setTimeout(function () { autoDrop(); }, 500);
+      } else if (stage === 2 && checkReconnected()) {
+        stage = 3; attempts = 0;
+        setTimeout(finish, 1000);
+      }
+    }, 500);
+  })();
 })();
 </script>
 <script src="./browser-demo.js"></script>

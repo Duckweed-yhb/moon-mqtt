@@ -34,6 +34,8 @@ demo：https://duckweed-yhb.github.io/moon-mqtt/docs/demo/
 
 页面连公共 EMQX `broker.emqx.io:8084`，订阅 `sensors/#` QoS1，收到 SUBACK 后发一条 QoS1 再收回自己的消息。点「强制断开（测试重连）」能走一次重连。完整 I/O 记录（首连、重连、QoS2）见 [docs/CASES.md](docs/CASES.md)。
 
+页面支持 `?autotest=1` 自检：打开 https://duckweed-yhb.github.io/moon-mqtt/docs/demo/?autotest=1 ，页面自动走「连接 → 订阅 → 收发 → 强制断开 → 重连」，末尾在日志打出 `[autotest] finished: PASS`（失败则 FAIL）。这是页面内自检，不是完整自动化测试。
+
 本地起服务：
 
 ```powershell

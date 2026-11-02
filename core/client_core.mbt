@@ -143,6 +143,16 @@ pub fn ClientCore::feed(
               @protocol.ConnectReturnCode::ConnectionAccepted => CoreState::Connected
               _ => CoreState::Disconnected
             }
+            // session_present=false：broker 丢了会话，自动重订已记录的订阅。
+            // session_present=true：broker 保留了订阅，无需重订。
+            match c.return_code {
+              @protocol.ConnectReturnCode::ConnectionAccepted => {
+                if !c.session_present {
+                  append_bytes(outgoing, self.resubscribe_bytes())
+                }
+              }
+              _ => ()
+            }
             events.push(CoreEvent::ConnackReceived(c))
           }
           @protocol.IncomingPacket::Publish(p) => {

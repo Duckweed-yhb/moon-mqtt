@@ -580,3 +580,32 @@ test "reset session does not clear subscriptions" {
   core.reset_session()
   assert_eq(core.subscriptions().length(), 1)
 }
+
+test "connack session_present false triggers auto resubscribe" {
+  let core = @core.ClientCore::new(@protocol.ConnectPacket::new("core-test"))
+  core.record_subscription("a/b", @protocol.qos1())
+  // 首次 CONNACK session_present=0，自动产出 SUBSCRIBE 帧
+  match core.feed([0x20, 0x02, 0x00, 0x00]) {
+    (_, outgoing) => {
+      assert_eq(outgoing.length(), 10)
+      assert_eq(outgoing[0], 0x82)
+    }
+  }
+}
+
+test "connack session_present true does not resubscribe" {
+  let core = @core.ClientCore::new(@protocol.ConnectPacket::new("core-test"))
+  core.record_subscription("a/b", @protocol.qos1())
+  // session_present=1：broker 保留了订阅，不重订
+  match core.feed([0x20, 0x02, 0x01, 0x00]) {
+    (_, outgoing) => assert_eq(outgoing.length(), 0)
+  }
+}
+
+test "connack with no subscriptions produces nothing on resubscribe" {
+  let core = @core.ClientCore::new(@protocol.ConnectPacket::new("core-test"))
+  // 没记录任何订阅，session_present=0 也不产出重订帧
+  match core.feed([0x20, 0x02, 0x00, 0x00]) {
+    (_, outgoing) => assert_eq(outgoing.length(), 0)
+  }
+}

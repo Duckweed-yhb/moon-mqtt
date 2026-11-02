@@ -1,0 +1,18 @@
+///|
+/// async — MQTT 客户端异步非阻塞外观（纯计算，四后端可测）
+///
+/// 在 @core.ClientCore 之上做一层非阻塞封装：不持有 socket，不做任何
+/// I/O。调用方自己管理传输（TCP / WebSocket / 串口等），把收到的字节
+/// 通过 `feed_bytes` 喂进来，再用 `drain_pending` / `drain_events`
+/// 取走待发字节与事件，驱动自己的事件循环即可。
+///
+/// 与 browser/ 的区别：browser/ 是 js 后端的单例 + WebSocket 胶水；
+/// 本包是后端无关的状态机外观，可在 native / wasm-gc / js 任意后端
+/// 直接测，也便于嵌进任意异步运行时（async stdio / tokio 等价物 /
+/// 事件循环）。
+supported_targets = "wasm+wasm-gc+js+native"
+
+import {
+  "Duckweed/moon-mqtt/core" @core,
+  "Duckweed/moon-mqtt/protocol" @protocol,
+}

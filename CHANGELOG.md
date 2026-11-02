@@ -4,6 +4,10 @@
 
 ## [Unreleased]
 
+### Added
+
+- `core/` 会话恢复纯计算层：本地订阅表记录 topic filter 与 QoS；CONNACK 带 `session_present=0` 时自动把已记录订阅打包成 SUBSCRIBE 帧重发，`session_present=1` 信任 broker 侧保留。胶水层自动写入订阅表与端到端用例待补。
+
 ### Changed
 
 - `moon.mod` keywords：`blocking` → `websocket` / `browser` / `wasm`，与浏览器事件驱动的现定位对齐。

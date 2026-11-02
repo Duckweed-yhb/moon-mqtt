@@ -1,6 +1,6 @@
 # moon-mqtt Roadmap
 
-> 更新：2026-10-26
+> 更新：2026-11-02
 > 当前版本：0.3.3（mooncakes latest）
 > 状态：对照官网验收 9 条自检通过；浏览器 demo 已上线
 
@@ -63,7 +63,7 @@
 - [ ] MQTT 5.0 基础字段（CONNECT/PUBLISH properties、CONNACK reason code）：11–1 月先做基础字段，完整 5.0 后续评估
 - [ ] native TLS 接入：视工具链在 2027 评估
 - [ ] Will message 的端到端测试
-- [ ] 会话快照落盘（native 层文件 I/O）
+- [ ] 会话恢复（部分完成：`core/` 订阅记录 + CONNACK 自动重订已就绪；胶水层自动记录订阅表、native 落盘与端到端用例待补）
 - [ ] 异步 / 回调封装（保持 native 阻塞式 API 不变，另起一层）
 - [ ] 浏览器 demo 增加手动 publish 输入框（当前是 SUBACK 后自动发一条）
 

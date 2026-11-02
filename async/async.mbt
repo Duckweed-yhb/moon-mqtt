@@ -100,6 +100,26 @@ pub fn AsyncClient::disconnect(self : AsyncClient) -> Unit {
   }
 }
 
+/// 订阅一个 topic：分配 packet_id、编码 SUBSCRIBE 帧、塞进待发队列，
+/// 同时在 Core 的 pending_subscribes 里登记 (pid, subs)。后续收到 SUBACK
+/// 且 `all_accepted()` 时 Core 会自动把这条订阅写入本地订阅表，重连后自动重订。
+///
+/// 未 Connected 时分配不到 pid（返回 0），静默不发。
+pub fn AsyncClient::subscribe(
+  self : AsyncClient, topic : String, qos : @protocol.QoS,
+) -> Unit {
+  let pid = self.core.allocate_control_packet_id()
+  if pid == 0 {
+    return
+  }
+  let subs = [@protocol.Subscription::new(topic, qos)]
+  self.core.record_outbound_subscribe(pid, subs)
+  let frame = @protocol.encode_subscribe(@protocol.SubscribePacket::new(pid, subs))
+  for b in frame {
+    self.pending.push(b)
+  }
+}
+
 /// 通知底层 transport 已断开（对端关闭 / 网络异常），状态切回
 /// Disconnected。SessionStore 保留，供重连后 replay。
 pub fn AsyncClient::on_transport_close(self : AsyncClient) -> Unit {

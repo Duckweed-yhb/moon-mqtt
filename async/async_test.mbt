@@ -61,3 +61,35 @@ test "feed qos1 publish queues puback as outgoing" {
   let out = client.drain_pending()
   assert_eq(out, [0x40, 0x02, 0x00, 0x05])
 }
+
+test "subscribe sends suback accepted records subscription" {
+  let client = @async.AsyncClient::new(@protocol.ConnectPacket::new("async-test"))
+  let _ = client.drain_pending()
+  // 先 CONNACK 进入 Connected
+  client.feed_bytes([0x20, 0x02, 0x00, 0x00])
+  let _ = client.drain_events()
+  // 发订阅
+  client.subscribe("sensors/#", @protocol.qos1())
+  let out = client.drain_pending()
+  // SUBSCRIBE 固定头 0x82
+  assert_eq(out[0], 0x82)
+  // pid = 1（CONNECT 没用 pid，第一个控制报文 id = 1）
+  assert_eq(out[2], 0x00)
+  assert_eq(out[3], 0x01)
+  // 喂 SUBACK（pid=1, Success1）
+  client.feed_bytes([0x90, 0x03, 0x00, 0x01, 0x01])
+  let evs = client.drain_events()
+  assert_eq(evs.length(), 1)
+  // 核心层订阅表应已落库（通过 core.state 间接验证：没有直接暴露 subscriptions getter，
+  // 但重连后 CONNACK session_present=false 应自动重订）
+  // 触发重连：transport close + reconnect
+  client.on_transport_close()
+  client.reconnect()
+  let _ = client.drain_pending() // 丢掉重连的 CONNECT
+  // 喂 CONNACK session_present=0 → 应自动重订 "sensors/#"
+  client.feed_bytes([0x20, 0x02, 0x00, 0x00])
+  let _ = client.drain_events()
+  let after = client.drain_pending()
+  // 自动重订的 SUBSCRIBE 固定头 0x82
+  assert_eq(after[0], 0x82)
+}

@@ -71,6 +71,8 @@ pub struct ClientCore {
   mut session : @session.SessionStore
   /// 入站 QoS2 尚未收到 PUBREL 的 packet_id，用于重复 PUBLISH 去重。
   mut inbound_qos2 : Array[Int]
+  /// 已成功的订阅列表（按 topic 去重），用于断线重连后自动重订。
+  subscriptions : Array[@protocol.Subscription]
 }
 
 /// 构造核心：初始状态 = Connecting（等 CONNACK），SessionStore 为空。
@@ -82,6 +84,7 @@ pub fn ClientCore::new(opts : @protocol.ConnectPacket) -> ClientCore {
     pending_pings: 0,
     session: @session.SessionStore::new(),
     inbound_qos2: [],
+    subscriptions: [],
   }
 }
 
@@ -255,6 +258,43 @@ pub fn ClientCore::allocate_control_packet_id(self : ClientCore) -> Int {
   }
 }
 
+/// 记录一条已订阅的 (topic, qos)。同一 topic 重复订阅时更新 qos，不重复追加。
+/// 由胶水层在 SUBACK 收到且 `all_accepted()` 为 true 后调用。
+pub fn ClientCore::record_subscription(
+  self : ClientCore, topic : String, qos : @protocol.QoS
+) -> Unit {
+  for i in 0..<self.subscriptions.length() {
+    if self.subscriptions[i].topic == topic {
+      self.subscriptions[i] = @protocol.Subscription::new(topic, qos)
+      return
+    }
+  }
+  self.subscriptions.push(@protocol.Subscription::new(topic, qos))
+}
+
+/// 当前已记录的订阅列表（只读副本，供测试 / 胶水层查询）。
+pub fn ClientCore::subscriptions(self : ClientCore) -> Array[@protocol.Subscription] {
+  return self.subscriptions
+}
+
+/// 断线重连后生成重订 SUBSCRIBE 帧字节。
+///
+/// 分配一个新 packet_id，把当前所有记录的订阅打包进一个 SUBSCRIBE 帧。
+/// 若无订阅则返回空数组。胶水层在 CONNACK(session_present=0) 后调用——
+/// 此时 broker 已丢会话，必须全量重订；session_present=1 时 broker 保留订阅，
+/// 由调用方自行决定是否重订（通常不需要）。
+pub fn ClientCore::resubscribe_bytes(self : ClientCore) -> Array[Int] {
+  if self.subscriptions.length() == 0 {
+    return []
+  }
+  let pid = self.allocate_control_packet_id()
+  if pid == 0 {
+    return []
+  }
+  let pkt = @protocol.SubscribePacket::new(pid, self.subscriptions)
+  return @protocol.encode_subscribe(pkt)
+}
+
 /// 断线重连后需要重发的在途报文序列（按原始发送序）。
 /// 由 `@session.replay` 产出：WaitingPuback/WaitPubrec 重发 PUBLISH(DUP=1)，
 /// WaitPubcomp 重发 PUBREL。
@@ -313,6 +353,7 @@ pub fn ClientCore::disconnected(opts : @protocol.ConnectPacket) -> ClientCore {
     pending_pings: 0,
     session: @session.SessionStore::new(),
     inbound_qos2: [],
+    subscriptions: [],
   }
 }
 
@@ -328,5 +369,6 @@ pub fn ClientCore::with_session(
     pending_pings: 0,
     session,
     inbound_qos2: [],
+    subscriptions: [],
   }
 }

@@ -531,3 +531,52 @@ test "unknown packet type reports actual type" {
     }
   }
 }
+
+test "record subscription stores topic and qos" {
+  let core = @core.ClientCore::new(@protocol.ConnectPacket::new("core-test"))
+  core.record_subscription("sensors/#", @protocol.qos1())
+  assert_eq(core.subscriptions().length(), 1)
+  core.record_subscription("cmd/+/light", @protocol.qos0())
+  assert_eq(core.subscriptions().length(), 2)
+}
+
+test "record same topic updates qos without duplicating" {
+  let core = @core.ClientCore::new(@protocol.ConnectPacket::new("core-test"))
+  core.record_subscription("a/b", @protocol.qos0())
+  core.record_subscription("a/b", @protocol.qos2())
+  assert_eq(core.subscriptions().length(), 1)
+  // 第二条的 qos 应为 ExactlyOnce
+  match core.subscriptions()[0].qos {
+    @protocol.QoS::ExactlyOnce => ()
+    _ => fail("expected qos2 after re-record")
+  }
+}
+
+test "resubscribe bytes empty when no subscriptions" {
+  let core = @core.ClientCore::new(@protocol.ConnectPacket::new("core-test"))
+  assert_eq(core.resubscribe_bytes(), [])
+}
+
+test "resubscribe bytes encodes subscribe frame" {
+  let core = @core.ClientCore::new(@protocol.ConnectPacket::new("core-test"))
+  // 先 CONNACK 进 Connected
+  let _ = core.feed([0x20, 0x02, 0x00, 0x00])
+  core.record_subscription("sensors/#", @protocol.qos1())
+  core.record_subscription("cmd/+/light", @protocol.qos0())
+  let frame = core.resubscribe_bytes()
+  // 固定头 0x82 = SUBSCRIBE
+  assert_eq(frame[0], 0x82)
+  // 剩余长度：2(pid) + [2(len)+9(topic sensors/#)+1(qos)] + [2(len)+11(topic cmd/+/light)+1(qos)] = 2+12+14 = 28
+  assert_eq(frame[1], 28)
+  // pid = 1（第一个控制报文 id）
+  assert_eq(frame[2], 0x00)
+  assert_eq(frame[3], 0x01)
+}
+
+test "reset session does not clear subscriptions" {
+  let core = @core.ClientCore::new(@protocol.ConnectPacket::new("core-test"))
+  core.record_subscription("a/b", @protocol.qos1())
+  // session_present=0 时清在途，但订阅列表保留（订阅是客户端自己记的，broker 丢了要重订）
+  core.reset_session()
+  assert_eq(core.subscriptions().length(), 1)
+}

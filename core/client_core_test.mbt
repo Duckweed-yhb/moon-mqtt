@@ -609,3 +609,83 @@ test "connack with no subscriptions produces nothing on resubscribe" {
     (_, outgoing) => assert_eq(outgoing.length(), 0)
   }
 }
+
+// ---------- SUBACK 自动落库 ----------
+
+// 构造 SUBACK 帧：pid=1，codes=[0x01]（Success1）。
+// 0x90 固定头，剩余长度 = 2(pid) + 1(code) = 3。
+fn suback_accepted_frame() -> Array[Int] {
+  return [0x90, 0x03, 0x00, 0x01, 0x01]
+}
+
+// 构造 SUBACK 帧：pid=1，codes=[0x80]（Failure）。
+fn suback_failure_frame() -> Array[Int] {
+  return [0x90, 0x03, 0x00, 0x01, 0x80]
+}
+
+test "suback accepted auto records pending subscribe" {
+  // 胶水层发 SUBSCRIBE(pid=1) 登记两个订阅；broker 回 SUBACK accepted，
+  // Core 自动把这两条落库，且 pending 表被清空。
+  let core = @core.ClientCore::new(@protocol.ConnectPacket::new("core-test"))
+  let _ = core.feed([0x20, 0x02, 0x00, 0x00]) // CONNACK -> Connected
+  let subs = [
+    @protocol.Subscription::new("sensors/#", @protocol.qos1()),
+    @protocol.Subscription::new("cmd/+/light", @protocol.qos0()),
+  ]
+  core.record_outbound_subscribe(1, subs)
+  assert_eq(core.subscriptions().length(), 0)
+  // 收 SUBACK(pid=1, accepted)
+  match core.feed(suback_accepted_frame()) {
+    (events, outgoing) => {
+      assert_eq(events.length(), 1)
+      assert_eq(outgoing.length(), 0)
+      match events[0] {
+        @core.CoreEvent::SubackReceived(_) => ()
+        _ => fail("expected SubackReceived")
+      }
+    }
+  }
+  // 两条订阅已落库
+  assert_eq(core.subscriptions().length(), 2)
+  assert_eq(core.subscriptions()[0].topic, "sensors/#")
+  assert_eq(core.subscriptions()[1].topic, "cmd/+/light")
+}
+
+test "suback failure does not record pending subscribe" {
+  // SUBACK 带 Failure 码：不落库，pending 条目不清理。
+  let core = @core.ClientCore::new(@protocol.ConnectPacket::new("core-test"))
+  let _ = core.feed([0x20, 0x02, 0x00, 0x00])
+  let subs = [@protocol.Subscription::new("a/b", @protocol.qos1())]
+  core.record_outbound_subscribe(1, subs)
+  // 收 SUBACK(pid=1, failure)
+  match core.feed(suback_failure_frame()) {
+    (events, _) => assert_eq(events.length(), 1)
+  }
+  // 订阅未落库
+  assert_eq(core.subscriptions().length(), 0)
+}
+
+test "suback for unknown pid does not crash" {
+  // 没登记过 pid=99 的 SUBSCRIBE，直接收 SUBACK：不应 panic，也不应落库。
+  let core = @core.ClientCore::new(@protocol.ConnectPacket::new("core-test"))
+  let _ = core.feed([0x20, 0x02, 0x00, 0x00])
+  // SUBACK(pid=99, accepted)
+  match core.feed([0x90, 0x03, 0x00, 0x63, 0x00]) {
+    (events, _) => assert_eq(events.length(), 1)
+  }
+  assert_eq(core.subscriptions().length(), 0)
+}
+
+test "suback accepted clears pending entry so second suback is no-op" {
+  // 同一 pid 的 SUBACK 来两次：第一次落库并清表，第二次不再重复落库。
+  let core = @core.ClientCore::new(@protocol.ConnectPacket::new("core-test"))
+  let _ = core.feed([0x20, 0x02, 0x00, 0x00])
+  core.record_outbound_subscribe(1, [
+    @protocol.Subscription::new("a/b", @protocol.qos1()),
+  ])
+  let _ = core.feed(suback_accepted_frame())
+  assert_eq(core.subscriptions().length(), 1)
+  // 再来一次同 pid 的 SUBACK：pending 已空，不应重复落库
+  let _ = core.feed(suback_accepted_frame())
+  assert_eq(core.subscriptions().length(), 1)
+}

@@ -73,6 +73,10 @@ pub struct ClientCore {
   mut inbound_qos2 : Array[Int]
   /// 已成功的订阅列表（按 topic 去重），用于断线重连后自动重订。
   subscriptions : Array[@protocol.Subscription]
+  /// 出站 SUBSCRIBE 在途映射：pid -> 该次订阅携带的 Subscription 列表。
+  /// 胶水层编码 SUBSCRIBE 后调 `record_outbound_subscribe(pid, subs)` 登记，
+  /// 收到对应 SUBACK 且 `all_accepted()` 为 true 时自动落库并清掉此条目。
+  mut pending_subscribes : Array[(Int, Array[@protocol.Subscription])]
 }
 
 /// 构造核心：初始状态 = Connecting（等 CONNACK），SessionStore 为空。
@@ -85,6 +89,7 @@ pub fn ClientCore::new(opts : @protocol.ConnectPacket) -> ClientCore {
     session: @session.SessionStore::new(),
     inbound_qos2: [],
     subscriptions: [],
+    pending_subscribes: [],
   }
 }
 
@@ -178,6 +183,12 @@ pub fn ClientCore::feed(
             }
           }
           @protocol.IncomingPacket::Suback(s) => {
+            // SUBACK：broker 对出站 SUBSCRIBE 的应答。
+            // 全部 accepted 时把对应 pending_subscribes 里的 Subscription 落库，
+            // 再从映射表中删除该条目；任一 Failure 则不记录，条目保留待胶水层处理。
+            if s.all_accepted() {
+              self.commit_pending_subscribe(s.packet_id)
+            }
             events.push(CoreEvent::SubackReceived(s))
           }
           @protocol.IncomingPacket::PingResp => {
@@ -282,6 +293,44 @@ pub fn ClientCore::record_subscription(
   self.subscriptions.push(@protocol.Subscription::new(topic, qos))
 }
 
+/// 登记一条出站 SUBSCRIBE：编码完 SUBSCRIBE 帧后由胶水层调用，
+/// 把 pid 和该次订阅携带的 Subscription 列表挂起。收到对应 SUBACK 且
+/// `all_accepted()` 为 true 时，feed() 会自动把这些订阅落库并清掉此条目。
+pub fn ClientCore::record_outbound_subscribe(
+  self : ClientCore, pid : Int, subs : Array[@protocol.Subscription]
+) -> Unit {
+  // 同 pid 已存在时先替换（理论上 pid 不会复用，但保险起见）。
+  let kept : Array[(Int, Array[@protocol.Subscription])] = []
+  for entry in self.pending_subscribes {
+    if entry.0 != pid {
+      kept.push(entry)
+    }
+  }
+  kept.push((pid, subs))
+  self.pending_subscribes = kept
+}
+
+/// SUBACK 全部 accepted 后调用：把 pid 对应的 Subscription 列表逐条落库，
+/// 并从 pending_subscribes 中移除该条目。pid 未登记时静默忽略（比如重订帧
+/// 由 resubscribe_bytes() 产出但没走 record_outbound_subscribe）。
+fn ClientCore::commit_pending_subscribe(
+  self : ClientCore, pid : Int
+) -> Unit {
+  let mut found : Array[@protocol.Subscription] = []
+  let kept : Array[(Int, Array[@protocol.Subscription])] = []
+  for entry in self.pending_subscribes {
+    if entry.0 == pid {
+      found = entry.1
+    } else {
+      kept.push(entry)
+    }
+  }
+  self.pending_subscribes = kept
+  for sub in found {
+    self.record_subscription(sub.topic, sub.qos)
+  }
+}
+
 /// 当前已记录的订阅列表（只读副本，供测试 / 胶水层查询）。
 pub fn ClientCore::subscriptions(self : ClientCore) -> Array[@protocol.Subscription] {
   return self.subscriptions
@@ -364,6 +413,7 @@ pub fn ClientCore::disconnected(opts : @protocol.ConnectPacket) -> ClientCore {
     session: @session.SessionStore::new(),
     inbound_qos2: [],
     subscriptions: [],
+    pending_subscribes: [],
   }
 }
 
@@ -380,5 +430,6 @@ pub fn ClientCore::with_session(
     session,
     inbound_qos2: [],
     subscriptions: [],
+    pending_subscribes: [],
   }
 }

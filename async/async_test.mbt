@@ -93,3 +93,36 @@ test "subscribe sends suback accepted records subscription" {
   // 自动重订的 SUBSCRIBE 固定头 0x82
   assert_eq(after[0], 0x82)
 }
+
+test "unsubscribe removes topic from local subscriptions" {
+  let client = @async.AsyncClient::new(@protocol.ConnectPacket::new("async-test"))
+  let _ = client.drain_pending()
+  // CONNACK → Connected
+  client.feed_bytes([0x20, 0x02, 0x00, 0x00])
+  let _ = client.drain_events()
+  // 订阅 a/b 和 c/d
+  client.subscribe("a/b", @protocol.qos1())
+  client.feed_bytes([0x90, 0x03, 0x00, 0x01, 0x01])
+  let _ = client.drain_events()
+  client.subscribe("c/d", @protocol.qos0())
+  client.feed_bytes([0x90, 0x03, 0x00, 0x02, 0x00])
+  let _ = client.drain_events()
+  let _ = client.drain_pending()
+  // 退订 a/b
+  client.unsubscribe("a/b")
+  let out = client.drain_pending()
+  // UNSUBSCRIBE 固定头 0xA2
+  assert_eq(out[0], 0xA2)
+  // 重连后只重订 c/d
+  client.on_transport_close()
+  client.reconnect()
+  let _ = client.drain_pending()
+  client.feed_bytes([0x20, 0x02, 0x00, 0x00])
+  let _ = client.drain_events()
+  let after = client.drain_pending()
+  // 重订帧里应该只有 c/d（11 字节 topic + qos），不含 a/b
+  // 验证方式：重订 SUBSCRIBE 帧的剩余长度应该只包含 c/d 这一条
+  // pid(2) + [len(2)+2("c/d")+1(qos)] = 7 → rlen=7
+  assert_eq(after[0], 0x82)
+  assert_eq(after[1], 8)
+}

@@ -120,6 +120,23 @@ pub fn AsyncClient::subscribe(
   }
 }
 
+/// 退订一个 topic：编码 UNSUBSCRIBE 帧塞进待发队列，同时从本地订阅表删除。
+/// 这样断线重连后不会把已经退订的 topic 自动重订回去。
+///
+/// 未 Connected 时分配不到 pid（返回 0），静默不发。
+pub fn AsyncClient::unsubscribe(self : AsyncClient, topic : String) -> Unit {
+  let pid = self.core.allocate_control_packet_id()
+  if pid == 0 {
+    return
+  }
+  let pkt = @protocol.UnsubscribePacket::new(pid, [topic])
+  let frame = @protocol.encode_unsubscribe(pkt)
+  for b in frame {
+    self.pending.push(b)
+  }
+  self.core.forget_subscription(topic)
+}
+
 /// 通知底层 transport 已断开（对端关闭 / 网络异常），状态切回
 /// Disconnected。SessionStore 保留，供重连后 replay。
 pub fn AsyncClient::on_transport_close(self : AsyncClient) -> Unit {

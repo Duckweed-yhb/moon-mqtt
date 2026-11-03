@@ -72,7 +72,7 @@ pub struct ClientCore {
   /// 入站 QoS2 尚未收到 PUBREL 的 packet_id，用于重复 PUBLISH 去重。
   mut inbound_qos2 : Array[Int]
   /// 已成功的订阅列表（按 topic 去重），用于断线重连后自动重订。
-  subscriptions : Array[@protocol.Subscription]
+  mut subscriptions : Array[@protocol.Subscription]
   /// 出站 SUBSCRIBE 在途映射：pid -> 该次订阅携带的 Subscription 列表。
   /// 胶水层编码 SUBSCRIBE 后调 `record_outbound_subscribe(pid, subs)` 登记，
   /// 收到对应 SUBACK 且 `all_accepted()` 为 true 时自动落库并清掉此条目。
@@ -334,6 +334,20 @@ fn ClientCore::commit_pending_subscribe(
 /// 当前已记录的订阅列表（只读副本，供测试 / 胶水层查询）。
 pub fn ClientCore::subscriptions(self : ClientCore) -> Array[@protocol.Subscription] {
   return self.subscriptions
+}
+
+/// 从本地订阅表删除指定 topic filter。
+///
+/// 胶水层发 UNSUBSCRIBE 后调用——这样重连后不会把已经退订的 topic 重订回去。
+/// topic 不在表里时静默忽略。
+pub fn ClientCore::forget_subscription(self : ClientCore, topic : String) -> Unit {
+  let kept : Array[@protocol.Subscription] = []
+  for sub in self.subscriptions {
+    if sub.topic != topic {
+      kept.push(sub)
+    }
+  }
+  self.subscriptions = kept
 }
 
 /// 断线重连后生成重订 SUBSCRIBE 帧字节。

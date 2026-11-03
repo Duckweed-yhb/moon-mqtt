@@ -108,6 +108,11 @@ pub struct UnsubscribePacket {
   topics : Array[String]
 }
 
+/// 构造 UNSUBSCRIBE 参数（供消费者在库外创建）。
+pub fn UnsubscribePacket::new(packet_id : Int, topics : Array[String]) -> UnsubscribePacket {
+  return { packet_id, topics }
+}
+
 /// 编码 UNSUBSCRIBE 为完整报文（含固定头 0xA2）。
 pub fn encode_unsubscribe(pkt : UnsubscribePacket) -> Array[Int] {
   let body = ByteWriter::new()

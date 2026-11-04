@@ -194,6 +194,9 @@ function _M0TPB8MutLocalGRPB5ArrayGiEE(param0) {
 function _M0TP38Duckweed11moon_2dmqtt4core6Framer(param0) {
   this.buf = param0;
 }
+function _M0TPB8MutLocalGRPB5ArrayGRP38Duckweed11moon_2dmqtt8protocol12SubscriptionEE(param0) {
+  this.val = param0;
+}
 function _M0DTP38Duckweed11moon_2dmqtt4core9CoreEvent15ConnackReceived(param0) {
   this._0 = param0;
 }
@@ -213,13 +216,15 @@ function _M0DTP38Duckweed11moon_2dmqtt4core9CoreEvent17UnknownPacketType(param0)
   this._0 = param0;
 }
 _M0DTP38Duckweed11moon_2dmqtt4core9CoreEvent17UnknownPacketType.prototype.$tag = 4;
-function _M0TP38Duckweed11moon_2dmqtt4core10ClientCore(param0, param1, param2, param3, param4, param5) {
+function _M0TP38Duckweed11moon_2dmqtt4core10ClientCore(param0, param1, param2, param3, param4, param5, param6, param7) {
   this.opts = param0;
   this.state = param1;
   this.framer = param2;
   this.pending_pings = param3;
   this.session = param4;
   this.inbound_qos2 = param5;
+  this.subscriptions = param6;
+  this.pending_subscribes = param7;
 }
 function $make_array_len_and_init(a, b) {
   const arr = new Array(a);
@@ -364,27 +369,37 @@ function _M0MPC15array5Array3setGiE(self, index, value) {
     return;
   }
 }
+function _M0MPC15array5Array3setGRP38Duckweed11moon_2dmqtt8protocol12SubscriptionE(self, index, value) {
+  const len = self.length;
+  if (index >= 0 && index < len) {
+    self[index] = value;
+    return;
+  } else {
+    $panic();
+    return;
+  }
+}
 function _M0MPC15array5Array5clearGiE(self) {
   _M0MPC15array5Array28unsafe__truncate__to__lengthGiE(self, 0);
 }
-function _M0IP38Duckweed11moon_2dmqtt8protocol3QoSPB2Eq5equal(_x_282, _x_283) {
-  switch (_x_282) {
+function _M0IP38Duckweed11moon_2dmqtt8protocol3QoSPB2Eq5equal(_x_284, _x_285) {
+  switch (_x_284) {
     case 0: {
-      if (_x_283 === 0) {
+      if (_x_285 === 0) {
         return true;
       } else {
         return false;
       }
     }
     case 1: {
-      if (_x_283 === 1) {
+      if (_x_285 === 1) {
         return true;
       } else {
         return false;
       }
     }
     default: {
-      if (_x_283 === 2) {
+      if (_x_285 === 2) {
         return true;
       } else {
         return false;
@@ -597,6 +612,25 @@ function _M0FP38Duckweed11moon_2dmqtt8protocol23suback__code__from__int(v) {
       return undefined;
     }
   }
+}
+function _M0MP38Duckweed11moon_2dmqtt8protocol6Suback13all__accepted(self) {
+  const _bind = self.codes;
+  const _bind$2 = _bind.length;
+  let _tmp = 0;
+  while (true) {
+    const _ = _tmp;
+    if (_ < _bind$2) {
+      const c = _bind[_];
+      if (c === 3) {
+        return false;
+      }
+      _tmp = _ + 1 | 0;
+      continue;
+    } else {
+      break;
+    }
+  }
+  return true;
 }
 function _M0MP38Duckweed11moon_2dmqtt8protocol10ByteReader3new(data) {
   return new _M0TP38Duckweed11moon_2dmqtt8protocol10ByteReader(data);
@@ -1664,6 +1698,14 @@ function _M0FP38Duckweed11moon_2dmqtt7session16record__outbound(store, pkt) {
     return { _0: new _M0TP38Duckweed11moon_2dmqtt7session12SessionStore(inflight, next), _1: pid };
   }
 }
+function _M0FP38Duckweed11moon_2dmqtt7session26alloc__control__packet__id(store) {
+  const pid = _M0FP38Duckweed11moon_2dmqtt7session14next__free__id(store);
+  if (pid === 0) {
+    return { _0: store, _1: 0 };
+  }
+  const next = pid >= 65535 ? 1 : pid + 1 | 0;
+  return { _0: new _M0TP38Duckweed11moon_2dmqtt7session12SessionStore(store.inflight, next), _1: pid };
+}
 function _M0FP38Duckweed11moon_2dmqtt7session14remove__by__id(store, packet_id) {
   const out = [];
   const _bind = store.inflight;
@@ -1885,6 +1927,87 @@ function _M0FP38Duckweed11moon_2dmqtt4core13append__bytes(out, src) {
     }
   }
 }
+function _M0MP38Duckweed11moon_2dmqtt4core10ClientCore20record__subscription(self, topic, qos) {
+  const _bind = 0;
+  const _bind$2 = self.subscriptions.length;
+  let _tmp = _bind;
+  while (true) {
+    const i = _tmp;
+    if (i < _bind$2) {
+      if (_M0MPC15array5Array2atGRP38Duckweed11moon_2dmqtt4core9CoreEventE(self.subscriptions, i).topic === topic) {
+        _M0MPC15array5Array3setGRP38Duckweed11moon_2dmqtt8protocol12SubscriptionE(self.subscriptions, i, _M0MP38Duckweed11moon_2dmqtt8protocol12Subscription3new(topic, qos));
+        return undefined;
+      }
+      _tmp = i + 1 | 0;
+      continue;
+    } else {
+      break;
+    }
+  }
+  _M0MPC15array5Array4pushGRP38Duckweed11moon_2dmqtt7session13InFlightEntryE(self.subscriptions, _M0MP38Duckweed11moon_2dmqtt8protocol12Subscription3new(topic, qos));
+}
+function _M0MP38Duckweed11moon_2dmqtt4core10ClientCore26commit__pending__subscribe(self, pid) {
+  const found = new _M0TPB8MutLocalGRPB5ArrayGRP38Duckweed11moon_2dmqtt8protocol12SubscriptionEE([]);
+  const kept = [];
+  const _bind = self.pending_subscribes;
+  const _bind$2 = _bind.length;
+  let _tmp = 0;
+  while (true) {
+    const _ = _tmp;
+    if (_ < _bind$2) {
+      const entry = _bind[_];
+      if (entry._0 === pid) {
+        found.val = entry._1;
+      } else {
+        _M0MPC15array5Array4pushGRP38Duckweed11moon_2dmqtt7session13InFlightEntryE(kept, entry);
+      }
+      _tmp = _ + 1 | 0;
+      continue;
+    } else {
+      break;
+    }
+  }
+  self.pending_subscribes = kept;
+  const _bind$3 = found.val;
+  const _bind$4 = _bind$3.length;
+  let _tmp$2 = 0;
+  while (true) {
+    const _ = _tmp$2;
+    if (_ < _bind$4) {
+      const sub = _bind$3[_];
+      _M0MP38Duckweed11moon_2dmqtt4core10ClientCore20record__subscription(self, sub.topic, sub.qos);
+      _tmp$2 = _ + 1 | 0;
+      continue;
+    } else {
+      return;
+    }
+  }
+}
+function _M0MP38Duckweed11moon_2dmqtt4core10ClientCore29allocate__control__packet__id(self) {
+  let store;
+  let pid;
+  _L: {
+    const _bind = _M0FP38Duckweed11moon_2dmqtt7session26alloc__control__packet__id(self.session);
+    const _store = _bind._0;
+    const _pid = _bind._1;
+    store = _store;
+    pid = _pid;
+    break _L;
+  }
+  self.session = store;
+  return pid;
+}
+function _M0MP38Duckweed11moon_2dmqtt4core10ClientCore18resubscribe__bytes(self) {
+  if (self.subscriptions.length === 0) {
+    return [];
+  }
+  const pid = _M0MP38Duckweed11moon_2dmqtt4core10ClientCore29allocate__control__packet__id(self);
+  if (pid === 0) {
+    return [];
+  }
+  const pkt = _M0MP38Duckweed11moon_2dmqtt8protocol15SubscribePacket3new(pid, self.subscriptions);
+  return _M0FP38Duckweed11moon_2dmqtt8protocol17encode__subscribe(pkt);
+}
 function _M0MP38Duckweed11moon_2dmqtt4core10ClientCore4feed(self, bytes) {
   const frames = _M0MP38Duckweed11moon_2dmqtt4core6Framer4feed(self.framer, bytes);
   const events = [];
@@ -1991,6 +2114,12 @@ function _M0MP38Duckweed11moon_2dmqtt4core10ClientCore4feed(self, bytes) {
                                     _tmp$2 = 0;
                                   }
                                   self.state = _tmp$2;
+                                  const _bind$3 = c.return_code;
+                                  if (_bind$3 === 0) {
+                                    if (!c.session_present) {
+                                      _M0FP38Duckweed11moon_2dmqtt4core13append__bytes(outgoing, _M0MP38Duckweed11moon_2dmqtt4core10ClientCore18resubscribe__bytes(self));
+                                    }
+                                  }
                                   _M0MPC15array5Array4pushGRP38Duckweed11moon_2dmqtt7session13InFlightEntryE(events, new _M0DTP38Duckweed11moon_2dmqtt4core9CoreEvent15ConnackReceived(c));
                                 }
                                 break _L$13;
@@ -2017,6 +2146,9 @@ function _M0MP38Duckweed11moon_2dmqtt4core10ClientCore4feed(self, bytes) {
                               }
                             }
                             break _L$11;
+                          }
+                          if (_M0MP38Duckweed11moon_2dmqtt8protocol6Suback13all__accepted(s)) {
+                            _M0MP38Duckweed11moon_2dmqtt4core10ClientCore26commit__pending__subscribe(self, s.packet_id);
                           }
                           _M0MPC15array5Array4pushGRP38Duckweed11moon_2dmqtt7session13InFlightEntryE(events, new _M0DTP38Duckweed11moon_2dmqtt4core9CoreEvent14SubackReceived(s));
                         }
@@ -2068,7 +2200,7 @@ function _M0MP38Duckweed11moon_2dmqtt4core10ClientCore16reconnect__bytes(self) {
   return _M0FP38Duckweed11moon_2dmqtt8protocol15encode__connect(self.opts);
 }
 function _M0MP38Duckweed11moon_2dmqtt4core10ClientCore13with__session(opts, session) {
-  return new _M0TP38Duckweed11moon_2dmqtt4core10ClientCore(opts, 1, _M0MP38Duckweed11moon_2dmqtt4core6Framer3new(), 0, session, []);
+  return new _M0TP38Duckweed11moon_2dmqtt4core10ClientCore(opts, 1, _M0MP38Duckweed11moon_2dmqtt4core6Framer3new(), 0, session, [], [], []);
 }
 function _M0FP48Duckweed11moon_2dmqtt8examples10ws_2dspike13byte__to__hex(b) {
   if (16 === 0) {

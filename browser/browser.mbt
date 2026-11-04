@@ -96,6 +96,9 @@ pub fn on_suback(_client : Client, handler : SubackHandler) -> Unit {
 }
 
 /// 订阅主题。packet_id 与 core/session 共享，避免和 PUBLISH 撞号。
+///
+/// 同时把 (pid, 订阅) 登记进 core 的 pending_subscribes：收到对应 SUBACK 且
+/// 全部 accepted 时，core 会自动把这条订阅写入本地订阅表，供断线重连后自动重订。
 pub fn subscribe(_client : Client, topic : String, qos : @protocol.QoS) -> Unit {
   match g_core[0] {
     Some(core) => {
@@ -106,6 +109,8 @@ pub fn subscribe(_client : Client, topic : String, qos : @protocol.QoS) -> Unit 
         return
       }
       let sub = @protocol.Subscription::new(topic, qos)
+      core.record_outbound_subscribe(pid, [sub])
+      g_core[0] = Some(core)
       let pkt = @protocol.SubscribePacket::new(pid, [sub])
       browser_send(@protocol.encode_subscribe(pkt))
     }
@@ -160,8 +165,14 @@ pub fn browser_on_message(bytes : Array[Int]) -> Unit {
                   @protocol.ConnectReturnCode::ConnectionAccepted => {
                     if !c.session_present {
                       // broker 已丢会话：清掉本地在途，避免僵尸重放。
+                      // 已记录的订阅表不受影响（reset_session 只清在途）。
                       core.reset_session()
-                      println("[browser] session_present=0, local session reset")
+                      // 重订帧由 core.feed() 追加进 outgoing，这里只记数量便于排查。
+                      let subs = core.subscriptions()
+                      println(
+                        "[browser] session_present=0, resubscribe " +
+                        subs.length().to_string() + " topic(s)",
+                      )
                     } else {
                       let frames = core.replay_bytes()
                       for f in frames {

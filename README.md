@@ -22,7 +22,7 @@ moon add Duckweed/moon-mqtt@0.3.3
 
 ```toml
 import {
-  "Duckweed/moon-mqtt",
+  "Duckweed/moon-mqtt@0.3.3",
 }
 ```
 
@@ -34,7 +34,7 @@ demo：https://duckweed-yhb.github.io/moon-mqtt/docs/demo/
 
 页面连公共 EMQX `broker.emqx.io:8084`，订阅 `sensors/#` QoS1，收到 SUBACK 后发一条 QoS1 再收回自己的消息。点「强制断开（测试重连）」能走一次重连。完整 I/O 记录（首连、重连、QoS2）见 [docs/CASES.md](docs/CASES.md)。
 
-页面支持 `?autotest=1` 自检：打开 https://duckweed-yhb.github.io/moon-mqtt/docs/demo/?autotest=1 ，页面自动走「连接 → 订阅 → 收发 → 强制断开 → 重连」，末尾在日志打出 `[autotest] finished: PASS`（失败则 FAIL）。这是页面内自检，不是完整自动化测试。
+页面支持 `?autotest=1` 自检：打开 https://duckweed-yhb.github.io/moon-mqtt/docs/demo/?autotest=1 ，页面自动走「连接 → 订阅 → 收发 → 强制断开 → 重连 → 重连后重订」5 步。全部通过时页面出现 `AUTOTEST: PASS` 结果框，日志末尾是 `[autotest] finished: PASS`（失败则 FAIL）。这是页面内自检，不是完整自动化测试。
 
 本地起服务：
 
@@ -90,10 +90,10 @@ API：
 | `publish(client, topic, payload, qos)` | 发布消息，QoS0/1/2 |
 | `disconnect(client)` | 发 DISCONNECT 并关闭连接 |
 
-无头 Chrome 实测（2026-10-22，连公共 EMQX）：
+无头 Chrome 实测（2026-11-04，连公共 EMQX，`?autotest=1` 模式，`clean_session=true`）：
 
 ```
-[browser] session_present=0
+[browser] session_present=0, resubscribe 0 topic(s)
 [demo] connected, subscribing sensors/# QoS1
 [browser] suback
 [demo] suback, publishing QoS1 sensors/hello
@@ -104,11 +104,14 @@ API：
 
 ```
 [browser] reconnect attempt #1 in 1s
-[browser] session_present=1, replay 0 frame(s)
-[demo] connected, subscribing sensors/# QoS1
+[browser] session_present=0, resubscribe 1 topic(s)
+[demo] reconnected, rely on core auto-resubscribe
+[browser] suback
 ```
 
-`session_present=1` 说明 broker 按 clean_session=false 把会话留着；`replay 0 frame(s)` 说明那次没有在途的 QoS1/2 帧要重发，订阅由 `on_connect` 重新发起。
+这一轮走 `clean_session=true`，broker 不保留会话，重连后回 `session_present=0`。`resubscribe 1 topic(s)` 是 `core/` 把本地订阅表里的 `sensors/#` 自动打包成 SUBSCRIBE 重发；demo 重连后不再手动订阅，第二个 SUBACK 完全来自这条重订帧。
+
+换成 `connect_persistent`（`clean_session=false`）时 broker 会回 `session_present=1`，此时不重订，改为按 `replay()` 重发在途 QoS1/2 帧。
 
 ## 运行示例
 
@@ -244,8 +247,10 @@ sequenceDiagram
 - [x] `transport/` native TCP（C FFI，跨平台，read 带超时）
 - [x] `client/` 阻塞式高层 API（poll_loop 自动心跳、reconnect 自动 replay）
 - [x] `browser/` 浏览器高层 API（connect / connect_persistent / on_connect / on_suback / on_message / subscribe / publish / disconnect）
-- [x] 浏览器端到端实测：2026-10-22 无头 Chrome，首连、publish QoS1、收消息、强制断开后重连到 `session_present=1`
-- [x] `moon test --target wasm-gc` 82/82；`moon test --target native` 107/107
+- [x] 会话恢复：`core/` 本地订阅表 + `session_present=0` 时自动重订；`browser/` 在 subscribe 时登记待确认订阅，SUBACK 通过后自动落库
+- [x] 浏览器端到端实测：2026-11-04 无头 Chrome（`?autotest=1`），首连订阅、publish QoS1、收消息、强制断开、重连后由 core 自动重订并收到第二次 SUBACK
+- [x] `async/` 非阻塞外观骨架（`AsyncClient`：`feed_bytes` / `drain_pending` / `drain_events` 与 subscribe / unsubscribe / publish / reconnect），真实非阻塞 IO 运行时接入属下阶段
+- [x] `moon test --target wasm-gc` 99/99；`moon test --target native` 124/124
 - [x] `moon check --target js --deny-warn` 通过，0 警告
 - [x] 发布到 mooncakes（0.3.3）
 
@@ -254,8 +259,8 @@ sequenceDiagram
 ```bash
 moon check
 moon check --target js --deny-warn   # 0 警告
-moon test --target wasm-gc           # 82/82
-moon test --target native            # 107/107
+moon test --target wasm-gc           # 99/99
+moon test --target native            # 124/124
 moon run examples/pubsub
 moon run examples/resume
 pwsh scripts/build-demo.ps1          # 浏览器 demo
@@ -289,12 +294,12 @@ mosquitto_sub -h 127.0.0.1 -t 'sensors/#' -v
 
 - **会话快照落盘**：`SessionStore` 提供 `snapshot()` / `restore()` 字节级原语，写盘由调用方自己做，库不碰文件。
 - **`transport/` 和 `client/` 仅 native**：依赖 C FFI socket。`protocol/`、`session/`、`core/` 四后端可测；浏览器走 `browser/` + WebSocket 胶水层，已端到端验证。`browser/` 仅 js 后端。
-- **阻塞式 API**：`client/` 是阻塞的，适合 CLI / 边缘遥测；高并发长连接要异步封装，当前没做。
+- **阻塞式 API**：`client/` 是阻塞的，适合 CLI / 边缘遥测；高并发长连接要异步封装。`async/` 目前是非阻塞外观骨架（`AsyncClient` 由调用方驱动 `feed_bytes` / `drain_pending` / `drain_events`），还没有接真实非阻塞 IO 运行时。
 - **同步握手期间收到 PUBLISH**：`publish` 等 PUBACK/PUBREC/PUBCOMP、`subscribe` 等 SUBACK 时，如果 broker 推来订阅主题的 PUBLISH，当前代码报 `"expected XXX"` 并丢掉这帧。边发边收请用 `poll_loop` + `subscribe_with_handler`；`poll_once` 处理入站 QoS2 已不再嵌套等 PUBREL。
 - **坏协议帧卡住缓冲**：`core/Framer` 遇到认不出的帧（剩余长度超 4 字节、保留报文类型等）会把这帧永久留在内部缓冲，后面的帧也就出不来，且不 reset。正常 broker 不会发这种帧；要防对端异常，得在调用方加超时。
 - **读超时**：单次 socket 读有 5 秒超时（`wait_read`），CONNACK/PUBACK/PINGRESP 等同步等待不会永久挂起；极慢的分段帧仍可能超时返回 Err。
 - **浏览器自动重连上限**：`browser/` 断线后 1 秒重连，**连续失败**最多 3 次；每次连上成功即把计数归零，长期在线不会耗尽配额。连续 3 次失败后刷新页面才会重新建立连接。
-- **`client/` 层测试**：25 条单测（`client/client_wbtest.mbt`），经 `Conn` 接缝注入脚本化假连接，覆盖 CONNECT/CONNACK 各分支、QoS0/1/2 发布握手、SUBACK、poll 派发与 QoS2 去重、自动心跳、断开、分帧上下限（wasm-gc 82 / native 107）。native + C FFI 无法在 wasm 后端实例化。
+- **`client/` 层测试**：25 条单测（`client/client_wbtest.mbt`），经 `Conn` 接缝注入脚本化假连接，覆盖 CONNECT/CONNACK 各分支、QoS0/1/2 发布握手、SUBACK、poll 派发与 QoS2 去重、自动心跳、断开、分帧上下限（本轮实测 wasm-gc 99 / native 124）。native + C FFI 无法在 wasm 后端实例化。
 - **`browser/` 层没有自动测试**：浏览器路径依赖 `extern "js"` 与 WebSocket，只能靠 `docs/demo/` 的手工验证与 `docs/CASES.md` 的 I/O 记录；改 `browser/` 后必须重跑 `scripts/build-demo.ps1` 并手工回归 demo 页。
 - **MQTT 5.0 本期不做**：CONNECT/PUBLISH properties、CONNACK reason code 等基础字段列入 11–1 月维护计划；完整 5.0 与 native TLS 视工具链在 2027 评估（浏览器侧的 TLS 由浏览器负责，不属本项目范围）。
 

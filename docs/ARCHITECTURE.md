@@ -1,10 +1,10 @@
 # 架构
 
-moon-mqtt 由六个包组成：三个纯计算包、一个 js 宿主包、两个 native 包。
+moon-mqtt 由七个包组成：四个纯计算包、一个 js 宿主包、两个 native 包。
 
 ![架构总览](assets/architecture.png)
 
-- **纯计算**：`protocol/` `session/` `core/`，四后端可测
+- **纯计算**：`protocol/` `session/` `core/` `async/`，四后端可测
 - **浏览器宿主**：`browser/`，js 后端，持有 `core/ClientCore`，WebSocket 由 JS 胶水层持有
 - **native 宿主**：`client/` + `transport/`，C FFI TCP
 
@@ -55,6 +55,19 @@ moon-mqtt 由六个包组成：三个纯计算包、一个 js 宿主包、两个
 
 `core/` 不 import 任何 WebSocket / socket 依赖，同一份代码在四个后端下零改动编译。native 上 `core/` 供测试使用，`client/` 不走它；浏览器路径由 `core/` 驱动。
 
+### `async/`（纯计算，四后端）
+
+`core/ClientCore` 之上的非阻塞外观。不持有 socket，不做任何 I/O，也不自带定时器：调用方自己管理传输（TCP / WebSocket / 事件循环），把收到的字节交给 `feed_bytes`，再取走待发字节与事件。
+
+- `AsyncClient`：持有一个 `ClientCore`
+- `feed_bytes(bytes)`：喂入入站字节
+- `drain_pending()`：取走待写回传输的字节
+- `drain_events()`：取走 CoreEvent 队列
+- `subscribe` / `unsubscribe` / `publish` / `pingreq` / `disconnect` / `reconnect`：出站入口，字节进待发队列
+- 收 SUBACK 且全部 accepted 时把订阅落进本地表，`unsubscribe` 从表里删除
+
+当前这个包是状态机外观，**尚未接入真实非阻塞 IO 运行时**：没有 socket 就绪通知和超时机制，驱动完全由调用方负责。它与 `browser/` 的 js 单例胶水是两条并列路径，互不替代。
+
 ### `browser/`（js only）
 
 浏览器宿主的高层封装。内部持有 `core/ClientCore`，WebSocket 对象由 JS 胶水层持有，MoonBit 侧只做纯计算。
@@ -65,7 +78,7 @@ moon-mqtt 由六个包组成：三个纯计算包、一个 js 宿主包、两个
 - `on_connect` / `on_suback` / `on_message`：CONNACK、SUBACK、PUBLISH 回调
 - `subscribe` / `publish` / `disconnect`
 - `publish` 支持 QoS0/1/2：QoS1/2 走 `core.publish()`，packet_id 与在途由 `core/` + `session/` 管理
-- 断线后 1 秒自动重连，最多 3 次；`session_present=1` 时把在途帧 replay 出去
+- 断线后 1 秒自动重连，最多 3 次；`session_present=1` 时把在途帧 replay 出去，`session_present=0` 时把本地订阅表里的 filter 自动打包成 SUBSCRIBE 重发
 - 限制：单连接全局状态，一个页面实例只支持一个 client
 
 ### `transport/`（native only）
@@ -136,6 +149,7 @@ broker ──WebSocket──► JS onmessage
 | `protocol/` | ✅ | ✅ | ✅ | ✅ |
 | `session/` | ✅ | ✅ | ✅ | ✅ |
 | `core/` | ✅ | ✅ | ✅ | ✅ |
+| `async/` | ✅ | ✅ | ✅ | ✅ |
 | `browser/` | - | - | ✅ | - |
 | `transport/` | - | - | - | ✅ |
 | `client/` | - | - | - | ✅（`client_wbtest.mbt` 25 条，经 `Conn` 假连接覆盖主路径） |
@@ -144,4 +158,4 @@ broker ──WebSocket──► JS onmessage
 | `examples/browser-demo` | - | - | ✅ | - |
 | `examples/ws-spike` | - | - | ✅ | - |
 
-`moon test --target wasm-gc` 82/82，`moon test --target native` 107/107；`moon check --target js --deny-warn` 0 警告。纯计算层四后端可测，`browser/` 与两个浏览器示例只编 js，`transport/` 与 `client/` 只编 native。
+`moon test --target wasm-gc` 99/99，`moon test --target native` 124/124（2026-11-05 实测）；`moon check --target js --deny-warn` 0 警告。纯计算层四后端可测，`browser/` 与两个浏览器示例只编 js，`transport/` 与 `client/` 只编 native。

@@ -4,7 +4,9 @@
 > 日期：2026-10-22。
 > 在线页面：https://duckweed-yhb.github.io/moon-mqtt/docs/demo/
 
-三份记录分别覆盖：首连 + 订阅 + 发布 QoS1 + 收到自己的消息；强制断开 + 自动重连 + `session_present=1`；QoS2 三段握手。
+四份记录分别覆盖：首连 + 订阅 + 发布 QoS1 + 收到自己的消息；强制断开 + 自动重连 + `session_present=1`；QoS2 三段握手；重连后由 Core 自动重订（`session_present=0`）。
+
+前三份是 2026-10-22 的记录，第四份是会话恢复进 Core 之后的记录。两者的重连行为不同，看例子时请注意日期。
 
 ## 案例 1：浏览器连接、订阅、发布 QoS1、收到自己的消息
 
@@ -55,7 +57,8 @@
 
 - `session_present=1` 表示 broker 保留了 `clean_session=false` 的会话
 - `replay 0 frame(s)` 表示断开那一刻没有在途 QoS1/2 帧要重发；replay 路径本身由 `examples/resume` 和 `session/` 单测覆盖
-- 重连成功后 `on_connect` 重新订阅，`on_suback` 再发一条，形成闭环
+- 这一轮 demo 用的还是旧写法：重连后 `on_connect` 再手动订阅一次，所以第二个 SUBACK 是应用层自己发的
+- 2026-11-04 起 demo 改成只在首次连接订阅，重连完全靠 `core/` 自动重订，见案例 4
 
 截图：`demo/screenshot-reconnect.png`
 
@@ -84,6 +87,42 @@
 - `core.feed()` 自动产出 `PUBREL`：`62 02 00 01`，由胶水层写回
 - broker 回 `PUBCOMP`：`70 02 00 01`，`SessionStore` 清掉在途
 - 全程没有手写握手字节，状态迁移在 `session/`，字节编排在 `core/`
+
+## 案例 4：重连后由 Core 自动重订（2026-11-04）
+
+与案例 2 的区别：这一轮 demo 只在首次连接时订阅一次，重连后不再调用 `subscribe`，第二个 SUBACK 完全来自 `core/` 重发的那条 SUBSCRIBE。
+
+输入：`?autotest=1`（走 `clean_session=true`），首次连接订阅 `sensors/#` QoS1，SUBACK 后发 `sensors/hello` QoS1，然后点「强制断开（测试重连）」。
+
+首连（页面控制台原文，2026-11-04）：
+
+```
+[browser] session_present=0, resubscribe 0 topic(s)
+[demo] connected, subscribing sensors/# QoS1
+[browser] suback
+[demo] suback, publishing QoS1 sensors/hello
+[demo] recv topic=sensors/hello payload=2 bytes
+```
+
+强制断开后重连：
+
+```
+[browser] reconnect attempt #1 in 1s
+[browser] session_present=0, resubscribe 1 topic(s)
+[demo] reconnected, rely on core auto-resubscribe
+[browser] suback
+```
+
+说明：
+
+- `clean_session=true` 下 broker 不保留会话，重连回 `session_present=0`
+- `resubscribe 1 topic(s)` 是 `core.feed()` 在 CONNACK 分支把本地订阅表打包成 SUBSCRIBE
+- `[demo] reconnected, rely on core auto-resubscribe` 说明应用层这一轮没有再订阅
+- 第二段最后一个 SUBACK 就是这条重订帧换来的，页面自检第 5 步据此判定通过
+
+自检结果：5 步全部 `[OK]`，结果框 `AUTOTEST: PASS`；修掉轮询未 `clearInterval` 的 bug 后，`AUTOTEST` 在页面上只出现一次。
+
+**限制**：以上是 2026-11-04 的原始记录，本轮（2026-11-05）没有重新跑浏览器自检，只做了文档口径核对。要复跑请按下一节的步骤走 `?autotest=1`。
 
 ## 复现
 

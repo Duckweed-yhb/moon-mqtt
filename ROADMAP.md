@@ -47,8 +47,8 @@
 
 ### 工程质量
 
-- `moon test --target wasm-gc` 82/82
-- `moon test --target native` 107/107
+- `moon test --target wasm-gc` 99/99
+- `moon test --target native` 124/124
 - `moon check --target js --deny-warn` 通过，0 警告
 - CI：check + 四后端 build/test + 两个浏览器 demo 构建
 
@@ -63,8 +63,8 @@
 - [ ] MQTT 5.0 基础字段（CONNECT/PUBLISH properties、CONNACK reason code）：11–1 月先做基础字段，完整 5.0 后续评估
 - [ ] native TLS 接入：视工具链在 2027 评估
 - [ ] Will message 的端到端测试
-- [ ] 会话恢复（部分完成：`core/` 订阅记录 + CONNACK 自动重订已就绪；胶水层自动记录订阅表、native 落盘与端到端用例待补）
-- [ ] 异步 / 回调封装（保持 native 阻塞式 API 不变，另起一层）
+- [ ] 会话恢复（接近完成：`core/` 订阅记录 + CONNACK 自动重订 + SUBACK 自动落库 + 退订删除；`browser/` 胶水层在 subscribe 时登记待确认订阅；浏览器 `?autotest=1` 已实测重连后自动重订并收到第二次 SUBACK。差 native 侧快照落盘与 `session_present=1` 的在途重放实测）
+- [ ] 异步 / 回调封装（保持 native 阻塞式 API 不变，另起一层）：`async/` 非阻塞外观骨架已立（`AsyncClient` + 待发 / 事件队列），真实非阻塞 IO 运行时待接
 - [ ] 浏览器 demo 增加手动 publish 输入框（当前是 SUBACK 后自动发一条）
 
 ## 不做

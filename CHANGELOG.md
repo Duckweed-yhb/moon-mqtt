@@ -9,8 +9,15 @@
 - `core/` 会话恢复纯计算层：本地订阅表记录 topic filter 与 QoS；CONNACK 带 `session_present=0` 时自动把已记录订阅打包成 SUBSCRIBE 帧重发，`session_present=1` 信任 broker 侧保留。`browser/` 胶水层在 subscribe 时把待确认订阅登记进 Core，SUBACK 通过后由 Core 自动落库；浏览器 demo 用 `clean_session=true` 实测重连后自动重订 1 个 topic 并收到 SUBACK。
 - `async/` 非阻塞外观骨架：`AsyncClient` 持有 `ClientCore`，提供 `feed_bytes` / `drain_pending` / `drain_events` 非阻塞接口，以及 `subscribe` / `unsubscribe` / `publish` / `pingreq` / `disconnect` / `reconnect` 方法。收 SUBACK accepted 时 Core 自动落库订阅，退订时从本地表删除。
 
+### Fixed
+
+- `transport/moon.pkg` 登记 `native-stub`，`tcp_stub.c` 用 MSVC `#pragma comment(lib, "ws2_32.lib")` 带上 Winsock 库：真实 native 消费者（`examples`、外部 `connect_opts` 调用）不再报 LNK2019 `unresolved external symbol mqtt_tcp_connect`。
+- `async/` 会话语义：CONNACK 之前调用 `subscribe` / `unsubscribe` 不再产生报文；收到 `session_present=1` 的成功 CONNACK 后自动重发在途 QoS1/2 报文（此前待发队列为空，断线前未确认的消息永久丢失）；`session_present=0` 时清空本地在途。
+- `tcp_stub.c`：Winsock 初始化提前到域名解析之前（此前 `getaddrinfo` 早于 `WSAStartup`）；POSIX 分支 `FD_SET` 改用 `int`（此前套用 Windows 的 `SOCKET` 类型，POSIX 下编译不过）。
+
 ### Changed
 
+- 测试数 100/125 → 102/127；`async/` 两条审查反例转成正式回归测试（CONNACK 前订阅不产帧、重连后重发在途 QoS1）。
 - `moon.mod` keywords：`blocking` → `websocket` / `browser` / `wasm`，与浏览器事件驱动的现定位对齐。
 
 ## [0.3.3] - 2026-10-26

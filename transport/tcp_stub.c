@@ -8,7 +8,15 @@
  * 与 moon-hive platform/fs 的边界写法一致。
  *
  * 平台：Windows winsock2 / POSIX socket（Linux、macOS）。
+ *
+ * 链接：moon 的 cc-link-flags 不进入可执行链接，所以 Windows 下用
+ * MSVC 的 #pragma comment 把 ws2_32.lib 写进 .drectve 段，让链接器
+ * 自动带上 Winsock 库；MinGW 走 -lws2_32，其他平台无需该库。
  * ============================================================ */
+
+#if defined(_WIN32) && defined(_MSC_VER)
+#pragma comment(lib, "ws2_32.lib")
+#endif
 
 #include "moonbit.h"
 #include <stdint.h>
@@ -27,9 +35,28 @@
 #include <unistd.h>
 #endif
 
+/* Windows 上 Winsock 必须在任何 socket / getaddrinfo 调用前初始化。
+   返回 1 = 可用，0 = 初始化失败。其他平台恒为 1。 */
+static int32_t mqtt_net_init(void) {
+#ifdef _WIN32
+  static int32_t wsastart = -1;
+  if (wsastart < 0) {
+    WSADATA wsa;
+    wsastart = (WSAStartup(MAKEWORD(2, 2), &wsa) == 0) ? 1 : 0;
+  }
+  return wsastart;
+#else
+  return 1;
+#endif
+}
+
 /* 连接 host:port。host 可为 IP 或域名。返回 socket 句柄（转 int64）；
    失败返回 -1。 */
 int64_t mqtt_tcp_connect(moonbit_string_t host, int32_t port) {
+  if (mqtt_net_init() != 1) {
+    return -1;
+  }
+
   int32_t hn = (int32_t)Moonbit_array_length(host);
   char hbuf[256];
   if (hn >= (int32_t)sizeof(hbuf)) {
@@ -40,7 +67,6 @@ int64_t mqtt_tcp_connect(moonbit_string_t host, int32_t port) {
   }
   hbuf[hn] = 0;
 
-  int32_t family = AF_INET;
   struct sockaddr_in sa;
   memset(&sa, 0, sizeof(sa));
   sa.sin_family = AF_INET;
@@ -58,18 +84,9 @@ int64_t mqtt_tcp_connect(moonbit_string_t host, int32_t port) {
     }
     sa = *(struct sockaddr_in *)res->ai_addr;
     freeaddrinfo(res);
-    (void)family;
   }
 
 #ifdef _WIN32
-  static int32_t wsastart = -1;
-  if (wsastart < 0) {
-    WSADATA wsa;
-    wsastart = (WSAStartup(MAKEWORD(2, 2), &wsa) == 0) ? 1 : 0;
-  }
-  if (wsastart != 1) {
-    return -1;
-  }
   SOCKET sock = socket(AF_INET, SOCK_STREAM, 0);
   if (sock == INVALID_SOCKET) {
     return -1;
@@ -170,7 +187,11 @@ int32_t mqtt_tcp_wait_read(int64_t fd, int32_t timeout_ms) {
   fd_set rfds;
   struct timeval tv;
   FD_ZERO(&rfds);
+#ifdef _WIN32
   FD_SET((SOCKET)fd, &rfds);
+#else
+  FD_SET((int)fd, &rfds);
+#endif
   tv.tv_sec = timeout_ms / 1000;
   tv.tv_usec = (timeout_ms % 1000) * 1000;
 #ifdef _WIN32

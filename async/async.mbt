@@ -37,14 +37,39 @@ pub fn AsyncClient::new(opts : @protocol.ConnectPacket) -> AsyncClient {
 
 /// 把 socket 收到的字节喂给底层 core。core.feed 产出的事件与出站字节
 /// 分别累加进 `events_buf` 与 `pending`，由调用方稍后 drain。
+///
+/// 收到成功 CONNACK 时补上会话语义：
+/// - `session_present=true`：broker 保留了会话，按 SessionStore 重发在途
+///   QoS1/2 报文（PUBLISH DUP=1 / PUBREL），否则断线前的未确认消息永远丢失；
+/// - `session_present=false`：broker 已丢会话，清空本地在途，避免下次重连
+///   把僵尸报文重放给新会话。
 pub fn AsyncClient::feed_bytes(self : AsyncClient, bytes : Array[Int]) -> Unit {
   match self.core.feed(bytes) {
     (events, outgoing) => {
-      for e in events {
-        self.events_buf.push(e)
-      }
       for b in outgoing {
         self.pending.push(b)
+      }
+      for e in events {
+        match e {
+          @core.CoreEvent::ConnackReceived(c) => {
+            match c.return_code {
+              @protocol.ConnectReturnCode::ConnectionAccepted => {
+                if c.session_present {
+                  for frame in self.core.replay_bytes() {
+                    for b in frame {
+                      self.pending.push(b)
+                    }
+                  }
+                } else {
+                  self.core.reset_session()
+                }
+              }
+              _ => ()
+            }
+          }
+          _ => ()
+        }
+        self.events_buf.push(e)
       }
     }
   }
@@ -104,10 +129,15 @@ pub fn AsyncClient::disconnect(self : AsyncClient) -> Unit {
 /// 同时在 Core 的 pending_subscribes 里登记 (pid, subs)。后续收到 SUBACK
 /// 且 `all_accepted()` 时 Core 会自动把这条订阅写入本地订阅表，重连后自动重订。
 ///
-/// 未 Connected 时分配不到 pid（返回 0），静默不发。
+/// **只在 Connected 状态下生效**：CONNECT 发出后到 CONNACK 回来之前调用会被
+/// 静默忽略（不产生任何字节），避免在 MQTT 连接建立前发出 SUBSCRIBE。
 pub fn AsyncClient::subscribe(
   self : AsyncClient, topic : String, qos : @protocol.QoS,
 ) -> Unit {
+  match self.core.state() {
+    @core.CoreState::Connected => ()
+    _ => return
+  }
   let pid = self.core.allocate_control_packet_id()
   if pid == 0 {
     return
@@ -123,8 +153,12 @@ pub fn AsyncClient::subscribe(
 /// 退订一个 topic：编码 UNSUBSCRIBE 帧塞进待发队列，同时从本地订阅表删除。
 /// 这样断线重连后不会把已经退订的 topic 自动重订回去。
 ///
-/// 未 Connected 时分配不到 pid（返回 0），静默不发。
+/// 与 `subscribe` 一样，只在 Connected 状态下生效。
 pub fn AsyncClient::unsubscribe(self : AsyncClient, topic : String) -> Unit {
+  match self.core.state() {
+    @core.CoreState::Connected => ()
+    _ => return
+  }
   let pid = self.core.allocate_control_packet_id()
   if pid == 0 {
     return
@@ -144,7 +178,8 @@ pub fn AsyncClient::on_transport_close(self : AsyncClient) -> Unit {
 }
 
 /// 重连：复用同一 ConnectPacket 重新编码 CONNECT，塞进待发队列，
-/// 状态切回 Connecting。
+/// 状态切回 Connecting。在途消息在收到 session_present=1 的 CONNACK 时
+/// 由 `feed_bytes` 自动重发。
 pub fn AsyncClient::reconnect(self : AsyncClient) -> Unit {
   let bytes = self.core.reconnect_bytes()
   for b in bytes {

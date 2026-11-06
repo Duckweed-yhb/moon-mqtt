@@ -126,3 +126,30 @@ test "unsubscribe removes topic from local subscriptions" {
   assert_eq(after[0], 0x82)
   assert_eq(after[1], 8)
 }
+
+test "subscribe before connack emits nothing" {
+  let client = @async.AsyncClient::new(@protocol.ConnectPacket::new("async-test"))
+  let _ = client.drain_pending()
+  // 还没收到 CONNACK，此时订阅不应产生任何字节
+  client.subscribe("early/#", @protocol.qos1())
+  assert_eq(client.drain_pending().length(), 0)
+}
+
+test "reconnect replays in-flight qos1 when session_present" {
+  let client = @async.AsyncClient::new(
+    @protocol.ConnectPacket::new("async-test").with_clean_session(false),
+  )
+  let _ = client.drain_pending()
+  // 首次连接：session_present=0
+  client.feed_bytes([0x20, 0x02, 0x00, 0x00])
+  let _ = client.drain_events()
+  // 发一条 QoS1，丢掉发出的 PUBLISH，模拟未确认就断线
+  client.publish("a", [1], @protocol.qos1())
+  let _ = client.drain_pending()
+  client.on_transport_close()
+  client.reconnect()
+  let _ = client.drain_pending()
+  // 重连成功且 broker 保留会话：应重发在途 PUBLISH(DUP=1)
+  client.feed_bytes([0x20, 0x02, 0x01, 0x00])
+  assert_true(client.drain_pending().length() > 0)
+}

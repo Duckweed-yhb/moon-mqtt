@@ -52,7 +52,19 @@ pub fn decode_packet(data : Array[Int]) -> Result[IncomingPacket, String] {
       Ok(id) => Ok(IncomingPacket::Unsuback(id))
       Err(e) => Err(e)
     }
-    13 => Ok(IncomingPacket::PingResp)
+    13 => match decode_remaining_length(data, 1) {
+      Err(e) => Err(e)
+      Ok((len, _)) => {
+        // PINGRESP 固定头必须是 0xD0（flags=0），且剩余长度恒为 0（§3.13）。
+        if data[0] != 0xD0 {
+          Err("pingresp flags mismatch")
+        } else if len != 0 {
+          Err("pingresp must have zero remaining length")
+        } else {
+          Ok(IncomingPacket::PingResp)
+        }
+      }
+    }
     _ => Err("unsupported incoming packet type " + t.to_string())
   }
 }
@@ -87,6 +99,29 @@ test "decode_packet dispatch" {
 
 test "decode_packet unsupported" {
   assert_true(match decode_packet([0x0E, 0x00]) {
+    Err(_) => true
+    Ok(_) => false
+  })
+}
+
+test "pingresp strict flags and zero length" {
+  // 合法 PINGRESP：0xD0，剩余长度 0
+  match decode_packet([0xD0, 0x00]) {
+    Ok(IncomingPacket::PingResp) => ()
+    _ => fail("expected pingresp")
+  }
+  // 保留 flags 非零（低四位被置位）→ Err
+  assert_true(match decode_packet([0xD8, 0x00]) {
+    Err(_) => true
+    Ok(_) => false
+  })
+  // 携带载荷（剩余长度非 0）→ Err
+  assert_true(match decode_packet([0xD0, 0x01, 0x00]) {
+    Err(_) => true
+    Ok(_) => false
+  })
+  // 只剩首字节、长度截断 → Err
+  assert_true(match decode_packet([0xD0]) {
     Err(_) => true
     Ok(_) => false
   })

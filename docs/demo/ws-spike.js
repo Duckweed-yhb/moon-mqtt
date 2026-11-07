@@ -382,24 +382,24 @@ function _M0MPC15array5Array3setGRP38Duckweed11moon_2dmqtt8protocol12Subscriptio
 function _M0MPC15array5Array5clearGiE(self) {
   _M0MPC15array5Array28unsafe__truncate__to__lengthGiE(self, 0);
 }
-function _M0IP38Duckweed11moon_2dmqtt8protocol3QoSPB2Eq5equal(_x_284, _x_285) {
-  switch (_x_284) {
+function _M0IP38Duckweed11moon_2dmqtt8protocol3QoSPB2Eq5equal(_x_286, _x_287) {
+  switch (_x_286) {
     case 0: {
-      if (_x_285 === 0) {
+      if (_x_287 === 0) {
         return true;
       } else {
         return false;
       }
     }
     case 1: {
-      if (_x_285 === 1) {
+      if (_x_287 === 1) {
         return true;
       } else {
         return false;
       }
     }
     default: {
-      if (_x_285 === 2) {
+      if (_x_287 === 2) {
         return true;
       } else {
         return false;
@@ -1472,7 +1472,27 @@ function _M0FP38Duckweed11moon_2dmqtt8protocol14decode__packet(data) {
       return new _M0DTPC16result6ResultGRP38Duckweed11moon_2dmqtt8protocol14IncomingPacketsE3Err(e$8);
     }
     case 13: {
-      return new _M0DTPC16result6ResultGRP38Duckweed11moon_2dmqtt8protocol14IncomingPacketsE2Ok(_M0DTP38Duckweed11moon_2dmqtt8protocol14IncomingPacket8PingResp__);
+      let len;
+      _L$9: {
+        let e$9;
+        _L$10: {
+          const _bind = _M0FP38Duckweed11moon_2dmqtt8protocol25decode__remaining__length(data, 1);
+          if (_bind.$tag === 0) {
+            const _Err = _bind;
+            const _e = _Err._0;
+            e$9 = _e;
+            break _L$10;
+          } else {
+            const _Ok = _bind;
+            const _x = _Ok._0;
+            const _len = _x._0;
+            len = _len;
+            break _L$9;
+          }
+        }
+        return new _M0DTPC16result6ResultGRP38Duckweed11moon_2dmqtt8protocol14IncomingPacketsE3Err(e$9);
+      }
+      return _M0MPC15array5Array2atGiE(data, 0) !== 208 ? new _M0DTPC16result6ResultGRP38Duckweed11moon_2dmqtt8protocol14IncomingPacketsE3Err("pingresp flags mismatch") : len !== 0 ? new _M0DTPC16result6ResultGRP38Duckweed11moon_2dmqtt8protocol14IncomingPacketsE3Err("pingresp must have zero remaining length") : new _M0DTPC16result6ResultGRP38Duckweed11moon_2dmqtt8protocol14IncomingPacketsE2Ok(_M0DTP38Duckweed11moon_2dmqtt8protocol14IncomingPacket8PingResp__);
     }
     default: {
       return new _M0DTPC16result6ResultGRP38Duckweed11moon_2dmqtt8protocol14IncomingPacketsE3Err(`unsupported incoming packet type ${_M0MPC13int3Int18to__string_2einner(t, 10)}`);

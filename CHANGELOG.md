@@ -8,6 +8,7 @@
 
 - `core/` 会话恢复纯计算层：本地订阅表记录 topic filter 与 QoS；CONNACK 带 `session_present=0` 时自动把已记录订阅打包成 SUBSCRIBE 帧重发，`session_present=1` 信任 broker 侧保留。`browser/` 胶水层在 subscribe 时把待确认订阅登记进 Core，SUBACK 通过后由 Core 自动落库；浏览器 demo 用 `clean_session=true` 实测重连后自动重订 1 个 topic 并收到 SUBACK。
 - `async/` 非阻塞外观骨架：`AsyncClient` 持有 `ClientCore`，提供 `feed_bytes` / `drain_pending` / `drain_events` 非阻塞接口，以及 `subscribe` / `unsubscribe` / `publish` / `pingreq` / `disconnect` / `reconnect` 方法。收 SUBACK accepted 时 Core 自动落库订阅，退订时从本地表删除。
+- `browser/` MQTT 保活：新增 `browser_tick(now_ms)`，由 JS 每秒驱动，`Connected` 状态下每 `keep_alive/2` 秒发一次 PINGREQ；连续 3 个 PINGREQ 没有 PINGRESP 判定链路已死，主动关闭 WebSocket 走正常重连。此前浏览器长连会被 broker 的 keep-alive 静默踢掉（WebSocket 还开着，MQTT 会话已经死了）。
 
 ### Fixed
 

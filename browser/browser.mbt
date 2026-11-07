@@ -37,6 +37,8 @@ let g_opts : Array[@protocol.ConnectPacket?] = [None]
 let g_handler : Array[MessageHandler?] = [None]
 let g_connect : Array[ConnectHandler?] = [None]
 let g_suback : Array[SubackHandler?] = [None]
+/// 上次发出 PINGREQ 的毫秒时间戳（JS `Date.now()` 传入）。
+let g_last_ping_ms : Array[Int] = [0]
 
 /// 客户端句柄（实际状态在 g_* 全局，extern "js" 限制）。
 pub struct Client {
@@ -235,6 +237,50 @@ pub fn browser_on_close() -> Unit {
   }
 }
 
+/// MQTT 保活 tick：由 JS 每秒调用一次，参数是 `Date.now()`。
+///
+/// - 只在 `Connected` 状态工作，连接建立前 / 断开后不发包；
+/// - 每 `keep_alive/2` 秒发一次 PINGREQ（`keep_alive=0` 表示不保活）；
+/// - 连续 3 个 PINGREQ 都没有 PINGRESP，判定链路已死，主动关掉 WebSocket，
+///   让 JS 的 onclose 走正常的 1 秒重连。
+///
+/// 没有这层，浏览器长连会在 broker 的 keep-alive 超时后被静默踢掉：
+/// WebSocket 还开着，但 MQTT 会话已经死了。
+pub fn browser_tick(now_ms : Int) -> Unit {
+  match g_core[0] {
+    Some(core) => {
+      match core.state() {
+        @core.CoreState::Connected => {
+          let ka = match g_opts[0] {
+            Some(o) => o.keep_alive
+            None => 60
+          }
+          if ka <= 0 {
+            return
+          }
+          if core.pending_pings() >= 3 {
+            println("[browser] keepalive timeout, closing socket")
+            core.on_transport_close()
+            g_core[0] = Some(core)
+            close_ws_ffi()
+            return
+          }
+          if now_ms - g_last_ping_ms[0] >= ka * 1000 / 2 {
+            let bytes = core.pingreq()
+            g_core[0] = Some(core)
+            browser_send(bytes)
+            g_last_ping_ms[0] = now_ms
+          } else {
+            g_core[0] = Some(core)
+          }
+        }
+        _ => ()
+      }
+    }
+    None => ()
+  }
+}
+
 // ---------- extern "js" ----------
 
 /// 把 Array[Int] 转成 FixedArray[Int]（JS FFI 边界要求 FixedArray）。
@@ -257,6 +303,18 @@ extern "js" fn open_ws_ffi(url : String, connect_bytes : FixedArray[Int]) -> Uni
   #|  let ws = null;
   #|  let reconnectAttempts = 0;
   #|  const MAX_RECONNECT = 3;
+  #|  let keepAliveTimer = null;
+  #|  function stopKeepAlive() {
+  #|    if (keepAliveTimer !== null) { clearInterval(keepAliveTimer); keepAliveTimer = null; }
+  #|  }
+  #|  function startKeepAlive() {
+  #|    stopKeepAlive();
+  #|    // 每秒问一次 MoonBit 侧：该发 PINGREQ 了吗 / 是否已经等太久。
+  #|    // 真正的「要不要发、发几字节」由 core 的 keep_alive 与状态机决定。
+  #|    keepAliveTimer = setInterval(function() {
+  #|      _M0FP38Duckweed11moon_2dmqtt7browser13browser__tick(Date.now());
+  #|    }, 1000);
+  #|  }
   #|  function open() {
   #|    if (typeof globalThis !== "undefined") { globalThis.moonMqttManualClose = false; }
   #|    console.log("[browser] connecting to " + url);
@@ -277,6 +335,7 @@ extern "js" fn open_ws_ffi(url : String, connect_bytes : FixedArray[Int]) -> Uni
   #|      const u8 = new Uint8Array(bytes.length);
   #|      for (let i = 0; i < bytes.length; i++) u8[i] = bytes[i];
   #|      ws.send(u8.buffer);
+  #|      startKeepAlive();
   #|    };
   #|    ws.onmessage = function(ev) {
   #|      const u8 = new Uint8Array(ev.data);
@@ -285,6 +344,7 @@ extern "js" fn open_ws_ffi(url : String, connect_bytes : FixedArray[Int]) -> Uni
   #|      _M0FP38Duckweed11moon_2dmqtt7browser20browser__on__message(arr);
   #|    };
   #|    ws.onclose = function() {
+  #|      stopKeepAlive();
   #|      _M0FP38Duckweed11moon_2dmqtt7browser18browser__on__close();
   #|      if (typeof globalThis !== "undefined" && globalThis.moonMqttManualClose) {
   #|        console.log("[browser] manual close, no reconnect");
@@ -344,4 +404,5 @@ pub fn _browser_dce_protect() -> Unit {
   let _ = browser_on_message([])
   let _ = browser_on_close()
   let _ = browser_reconnect_bytes()
+  let _ = browser_tick(0)
 }

@@ -220,6 +220,34 @@ test "publish qos1 rejects mismatched PUBACK id" {
   }
 }
 
+test "publish qos1 dispatches inbound publish interleaved before PUBACK" {
+  let out : Array[Array[Int]] = []
+  let closed : Array[Int] = []
+  let got : Array[String] = []
+  let inbound = @protocol.encode_publish(
+    @protocol.PublishPacket::new("sensors/x", [7], @protocol.qos0(), false, false, 0),
+  )
+  // 脚本：SUBACK(pid 1) → 入站业务 PUBLISH → publish 的 PUBACK（pid 2）
+  let c = f_connected(
+    f_script([f_suback(1, 0x00), inbound, f_pid(0x40, 2)]), out, closed,
+  )
+  let h : SubHandler = fn(topic, payload) {
+    ignore(payload)
+    got.push(topic)
+  }
+  match c.subscribe_with_handler("sensors/#", @protocol.qos1(), h) {
+    Ok(_) => ()
+    Err(e) => fail("subscribe failed: " + e)
+  }
+  match c.publish("sensors/y", [1], @protocol.qos1()) {
+    Ok(_) => ()
+    Err(e) => fail("publish failed: " + e)
+  }
+  // 握手等待期间到达的业务消息必须派发出去，而不是被当成「非目标帧」丢掉
+  assert_eq(got.length(), 1)
+  assert_eq(got[0], "sensors/x")
+}
+
 test "publish qos2 runs the full PUBREC/PUBREL/PUBCOMP handshake" {
   let out : Array[Array[Int]] = []
   let closed : Array[Int] = []

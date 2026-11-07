@@ -208,7 +208,7 @@ pub fn MqttClient::publish(
   match qos {
     @protocol.QoS::AtMostOnce => return Ok(())
     @protocol.QoS::AtLeastOnce =>
-      match self.read_packet() {
+      match self.read_control() {
         Ok(@protocol.IncomingPacket::Puback(id)) if id == pid => {
           self.store[0] = @session.on_puback(self.store[0], pid)
           Ok(())
@@ -218,7 +218,7 @@ pub fn MqttClient::publish(
         Err(e) => Err(e)
       }
     @protocol.QoS::ExactlyOnce => {
-      match self.read_packet() {
+      match self.read_control() {
         Ok(@protocol.IncomingPacket::Pubrec(id)) if id == pid => {
           let (s1, pubrel) = @session.on_pubrec(self.store[0], pid)
           self.store[0] = s1
@@ -231,7 +231,7 @@ pub fn MqttClient::publish(
         Ok(_) => return Err("expected PUBREC")
         Err(e) => return Err(e)
       }
-      match self.read_packet() {
+      match self.read_control() {
         Ok(@protocol.IncomingPacket::Pubcomp(id)) if id == pid => {
           self.store[0] = @session.on_pubcomp(self.store[0], pid)
           Ok(())
@@ -264,7 +264,7 @@ pub fn MqttClient::subscribe(
     Err(e) => return Err(e)
     Ok(_) => ()
   }
-  match self.read_packet() {
+  match self.read_control() {
     Ok(@protocol.IncomingPacket::Suback(s)) if s.packet_id == pid => {
       if s.all_accepted() {
         Ok(())
@@ -322,6 +322,88 @@ fn pid_without(pids : Array[Int], pid : Int) -> Array[Int] {
   return kept
 }
 
+/// 派发一条入站 PUBLISH：QoS1/2 先回 ACK，再按本地订阅表调 handler。
+///
+/// `poll_once` 与同步握手等待共用这一条路径。握手往返期间 broker 完全
+/// 可能插业务消息（订阅主题下的推送、别的 QoS 流），把「不是目标报文」
+/// 直接当错误返回，等于把这条消息从 socket 里读走丢掉，后续 poll 也补不
+/// 回来——这是 10 月轮验收被拒的那条缺陷。
+fn MqttClient::dispatch_publish(
+  self : MqttClient, p : @protocol.PublishPacket
+) -> Result[Unit, String] {
+  // QoS1/2 先回 ACK，再调用户回调。QoS2 不在这里等 PUBREL：
+  // PUBREL 由 read_control / poll_once 的独立分支回 PUBCOMP，避免插帧丢消息。
+  let mut deliver = true
+  match p.qos {
+    @protocol.QoS::AtLeastOnce => {
+      match self.tcp.write(@protocol.encode_puback(p.packet_id)) {
+        Ok(_) => ()
+        Err(e) => return Err(e)
+      }
+    }
+    @protocol.QoS::ExactlyOnce => {
+      if pid_contains(self.inbound_qos2, p.packet_id) {
+        deliver = false
+      } else {
+        self.inbound_qos2.push(p.packet_id)
+      }
+      match self.tcp.write(@protocol.encode_pubrec(p.packet_id)) {
+        Ok(_) => ()
+        Err(e) => return Err(e)
+      }
+    }
+    @protocol.QoS::AtMostOnce => ()
+  }
+  if deliver {
+    for reg in self.subs {
+      if @protocol.topic_matches(reg.filter, p.topic) {
+        (reg.handler)(p.topic, p.payload)
+      }
+    }
+  }
+  Ok(())
+}
+
+/// 读下一条控制应答报文，途中消化业务 PUBLISH 与入站 PUBREL 握手。
+///
+/// `publish` 等 PUBACK/PUBREC/PUBCOMP、`subscribe` 等 SUBACK、`ping` 等
+/// PINGRESP 都必须走这里：这些同步等待期间到达的 PUBLISH 要照常派发给
+/// handler，不能因为「不是期待的目标包」就丢掉。入站 PUBREL 也一并回
+/// PUBCOMP，否则双向 QoS2 会在握手途中卡住。
+fn MqttClient::read_control(
+  self : MqttClient
+) -> Result[@protocol.IncomingPacket, String] {
+  let mut result : Result[@protocol.IncomingPacket, String] = Err("unreachable")
+  while true {
+    let pkt = match self.read_packet() {
+      Ok(p) => p
+      Err(e) => return Err(e)
+    }
+    match pkt {
+      @protocol.IncomingPacket::Publish(p) => {
+        match self.dispatch_publish(p) {
+          Ok(_) => ()
+          Err(e) => return Err(e)
+        }
+        continue
+      }
+      @protocol.IncomingPacket::Pubrel(id) => {
+        self.inbound_qos2 = pid_without(self.inbound_qos2, id)
+        match self.tcp.write(@protocol.encode_pubcomp(id)) {
+          Ok(_) => ()
+          Err(e) => return Err(e)
+        }
+        continue
+      }
+      _ => {
+        result = Ok(pkt)
+        break
+      }
+    }
+  }
+  result
+}
+
 /// 阻塞读一帧入站报文并派发：
 /// - PUBLISH：按 topic filter 匹配本地订阅表，调对应 handler；
 ///   QoS1/2 的 PUBLISH 会自动回 PUBACK / PUBREC+PUBREL；
@@ -344,37 +426,10 @@ pub fn MqttClient::poll_once(self : MqttClient, timeout_ms : Int) -> Result[Bool
   }
   match pkt {
     @protocol.IncomingPacket::Publish(p) => {
-      // QoS1/2 先回 ACK，再调用户回调。QoS2 不在这里等 PUBREL：
-      // PUBREL 由后续 poll 的独立分支回 PUBCOMP，避免插帧导致丢消息。
-      let mut deliver = true
-      match p.qos {
-        @protocol.QoS::AtLeastOnce => {
-          match self.tcp.write(@protocol.encode_puback(p.packet_id)) {
-            Ok(_) => ()
-            Err(e) => return Err(e)
-          }
-        }
-        @protocol.QoS::ExactlyOnce => {
-          if pid_contains(self.inbound_qos2, p.packet_id) {
-            deliver = false
-          } else {
-            self.inbound_qos2.push(p.packet_id)
-          }
-          match self.tcp.write(@protocol.encode_pubrec(p.packet_id)) {
-            Ok(_) => ()
-            Err(e) => return Err(e)
-          }
-        }
-        @protocol.QoS::AtMostOnce => ()
+      match self.dispatch_publish(p) {
+        Ok(_) => Ok(true)
+        Err(e) => Err(e)
       }
-      if deliver {
-        for reg in self.subs {
-          if @protocol.topic_matches(reg.filter, p.topic) {
-            (reg.handler)(p.topic, p.payload)
-          }
-        }
-      }
-      Ok(true)
     }
     @protocol.IncomingPacket::Puback(id) => {
       self.store[0] = @session.on_puback(self.store[0], id)
@@ -415,7 +470,7 @@ pub fn MqttClient::ping(self : MqttClient) -> Result[Unit, String] {
     Err(e) => return Err(e)
     Ok(_) => ()
   }
-  match self.read_packet() {
+  match self.read_control() {
     Ok(@protocol.IncomingPacket::PingResp) => Ok(())
     Ok(_) => Err("expected PINGRESP")
     Err(e) => Err(e)

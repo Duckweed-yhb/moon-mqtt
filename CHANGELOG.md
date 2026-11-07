@@ -14,10 +14,11 @@
 - `transport/moon.pkg` 登记 `native-stub`，`tcp_stub.c` 用 MSVC `#pragma comment(lib, "ws2_32.lib")` 带上 Winsock 库：真实 native 消费者（`examples`、外部 `connect_opts` 调用）不再报 LNK2019 `unresolved external symbol mqtt_tcp_connect`。
 - `async/` 会话语义：CONNACK 之前调用 `subscribe` / `unsubscribe` 不再产生报文；收到 `session_present=1` 的成功 CONNACK 后自动重发在途 QoS1/2 报文（此前待发队列为空，断线前未确认的消息永久丢失）；`session_present=0` 时清空本地在途。
 - `tcp_stub.c`：Winsock 初始化提前到域名解析之前（此前 `getaddrinfo` 早于 `WSAStartup`）；POSIX 分支 `FD_SET` 改用 `int`（此前套用 Windows 的 `SOCKET` 类型，POSIX 下编译不过）。
+- `client/` 同步握手期间不再丢入站 PUBLISH：`publish`（等 PUBACK/PUBREC/PUBCOMP）、`subscribe`（等 SUBACK）、`ping`（等 PINGRESP）统一走 `read_control`，途中到达的业务 PUBLISH 照常按订阅表派发、入站 PUBREL 照常回 PUBCOMP。此前这些等待把非目标帧当 `"expected XXX"` 错误返回，消息被读出 socket 后丢弃，`poll` 也补不回来——这是十月轮验收未通过的直接原因。
 
 ### Changed
 
-- 测试数 100/125 → 102/127；`async/` 两条审查反例转成正式回归测试（CONNACK 前订阅不产帧、重连后重发在途 QoS1）。
+- 测试数 100/125 → 102/128；`async/` 两条审查反例与 `client/` 一条插帧派发用例转成正式回归测试（CONNACK 前订阅不产帧、重连后重发在途 QoS1、等 PUBACK 时插 PUBLISH 不丢）。
 - `moon.mod` keywords：`blocking` → `websocket` / `browser` / `wasm`，与浏览器事件驱动的现定位对齐。
 
 ## [0.3.3] - 2026-10-26

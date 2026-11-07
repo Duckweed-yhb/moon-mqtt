@@ -16,10 +16,12 @@
 - `async/` 会话语义：CONNACK 之前调用 `subscribe` / `unsubscribe` 不再产生报文；收到 `session_present=1` 的成功 CONNACK 后自动重发在途 QoS1/2 报文（此前待发队列为空，断线前未确认的消息永久丢失）；`session_present=0` 时清空本地在途。
 - `tcp_stub.c`：Winsock 初始化提前到域名解析之前（此前 `getaddrinfo` 早于 `WSAStartup`）；POSIX 分支 `FD_SET` 改用 `int`（此前套用 Windows 的 `SOCKET` 类型，POSIX 下编译不过）。
 - `client/` 同步握手期间不再丢入站 PUBLISH：`publish`（等 PUBACK/PUBREC/PUBCOMP）、`subscribe`（等 SUBACK）、`ping`（等 PINGRESP）统一走 `read_control`，途中到达的业务 PUBLISH 照常按订阅表派发、入站 PUBREL 照常回 PUBCOMP。此前这些等待把非目标帧当 `"expected XXX"` 错误返回，消息被读出 socket 后丢弃，`poll` 也补不回来——这是十月轮验收未通过的直接原因。
+- `protocol/` PUBLISH 解码收紧：拒绝 QoS0 报文带 DUP=1（QoS0 无重传语义，§3.3.2.3），拒绝 QoS1/2 报文 packet_id=0（§2.3.1）；QoS 大于 0 的合法 DUP 重传不受影响，并补对应回归测试。
 
 ### Changed
 
 - 测试数 100/125 → 102/128；`async/` 两条审查反例与 `client/` 一条插帧派发用例转成正式回归测试（CONNACK 前订阅不产帧、重连后重发在途 QoS1、等 PUBACK 时插 PUBLISH 不丢）。
+- 测试数 102/128 → 105/131；`protocol/` 补 3 条畸形 PUBLISH 帧回归测试（QoS0 置 DUP、QoS1 零 packet_id 应拒绝，QoS1 带非零 id 的 DUP 应放行）。
 - `moon.mod` keywords：`blocking` → `websocket` / `browser` / `wasm`，与浏览器事件驱动的现定位对齐。
 
 ## [0.3.3] - 2026-10-26

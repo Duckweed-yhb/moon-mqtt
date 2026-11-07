@@ -158,4 +158,4 @@ broker ──WebSocket──► JS onmessage
 | `examples/browser-demo` | - | - | ✅ | - |
 | `examples/ws-spike` | - | - | ✅ | - |
 
-`moon test --target wasm-gc` 102/102，`moon test --target native` 128/128（2026-11-07 实测）；`moon check --target js --deny-warn` 0 警告。纯计算层四后端可测，`browser/` 与两个浏览器示例只编 js，`transport/` 与 `client/` 只编 native。
+`moon test --target wasm-gc` 105/105，`moon test --target native` 131/131（2026-11-07 实测）；`moon check --target js --deny-warn` 0 警告。纯计算层四后端可测，`browser/` 与两个浏览器示例只编 js，`transport/` 与 `client/` 只编 native。

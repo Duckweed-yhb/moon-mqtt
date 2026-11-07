@@ -67,42 +67,52 @@ pub fn decode_publish(data : Array[Int]) -> Result[PublishPacket, String] {
   let flags = first & 0x0F
   match qos_from_int((flags >> 1) & 0x03) {
     None => Err("publish bad qos")
-    Some(q) => match decode_remaining_length(data, 1) {
-      Err(e) => Err(e)
-      Ok((rlen, p)) => {
-        let end = p + rlen
-        if end > data.length() {
-          return Err("publish length exceeds data")
-        }
-        let r = ByteReader::new(data)
-        match r.read_string(p) {
-          Err(e) => Err(e)
-          Ok((topic, p2)) => {
-            let mut pos = p2
-            let mut pid = 0
-            if q != QoS::AtMostOnce {
-              match r.read_u16(pos) {
-                Err(e) => return Err(e)
-                Ok((id, p3)) => {
-                  pid = id
-                  pos = p3
+    Some(q) => {
+      // QoS0 没有重传语义，规范不允许把 DUP 位置 1（§3.3.2.3）。
+      if q == QoS::AtMostOnce && (flags & 0x08) != 0 {
+        return Err("qos0 publish must not set dup")
+      }
+      match decode_remaining_length(data, 1) {
+        Err(e) => Err(e)
+        Ok((rlen, p)) => {
+          let end = p + rlen
+          if end > data.length() {
+            return Err("publish length exceeds data")
+          }
+          let r = ByteReader::new(data)
+          match r.read_string(p) {
+            Err(e) => Err(e)
+            Ok((topic, p2)) => {
+              let mut pos = p2
+              let mut pid = 0
+              if q != QoS::AtMostOnce {
+                match r.read_u16(pos) {
+                  Err(e) => return Err(e)
+                  Ok((id, p3)) => {
+                    // QoS1/2 的 packet id 必须非零（§2.3.1），0 不是合法标识。
+                    if id == 0 {
+                      return Err("qos1/qos2 packet id must be nonzero")
+                    }
+                    pid = id
+                    pos = p3
+                  }
                 }
               }
+              let payload : Array[Int] = []
+              for i in pos..<end {
+                payload.push(data[i])
+              }
+              Ok(
+                {
+                  topic,
+                  payload,
+                  qos: q,
+                  retain: (flags & 0x01) != 0,
+                  dup: (flags & 0x08) != 0,
+                  packet_id: pid,
+                },
+              )
             }
-            let payload : Array[Int] = []
-            for i in pos..<end {
-              payload.push(data[i])
-            }
-            Ok(
-              {
-                topic,
-                payload,
-                qos: q,
-                retain: (flags & 0x01) != 0,
-                dup: (flags & 0x08) != 0,
-                packet_id: pid,
-              },
-            )
           }
         }
       }
@@ -219,4 +229,35 @@ test "qos control packets" {
     Err(_) => true
     Ok(_) => false
   })
+}
+
+test "decode_publish rejects qos0 dup flag" {
+  // 0x38：QoS0 但 DUP 位置 1，规范不允许重传标记出现在 QoS0 报文上。
+  let data = [0x38, 0x03, 0x00, 0x01, 0x61]
+  assert_true(match decode_publish(data) {
+    Err(_) => true
+    Ok(_) => false
+  })
+}
+
+test "decode_publish rejects qos1 zero packet id" {
+  // QoS1 报文的 packet_id 为 0，不是合法标识符。
+  let data = [0x32, 0x05, 0x00, 0x01, 0x61, 0x00, 0x00]
+  assert_true(match decode_publish(data) {
+    Err(_) => true
+    Ok(_) => false
+  })
+}
+
+test "decode_publish allows qos1 dup with nonzero packet id" {
+  // QoS 大于 0 时 DUP=1 是合法重传，守卫只拒绝 QoS0 的 DUP。
+  let data = [0x3A, 0x05, 0x00, 0x01, 0x61, 0x00, 0x07]
+  match decode_publish(data) {
+    Ok(p) => {
+      assert_eq(p.dup, true)
+      assert_eq(p.qos, QoS::AtLeastOnce)
+      assert_eq(p.packet_id, 7)
+    }
+    Err(e) => fail(e)
+  }
 }

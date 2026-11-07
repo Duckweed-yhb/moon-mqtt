@@ -15,14 +15,14 @@ MoonBit 写的 MQTT 3.1.1 客户端。浏览器里走 WebSocket，native 上走 
 需要 [MoonBit 工具链](https://www.moonbitlang.com/)（moon ≥ 0.1.20261012）。浏览器项目用 js 后端，native 用默认后端。
 
 ```bash
-moon add Duckweed/moon-mqtt@0.3.3
+moon add Duckweed/moon-mqtt@0.3.4
 ```
 
 也可以直接写进 `moon.mod`：
 
 ```toml
 import {
-  "Duckweed/moon-mqtt@0.3.3",
+  "Duckweed/moon-mqtt@0.3.4",
 }
 ```
 
@@ -253,7 +253,7 @@ sequenceDiagram
 - [x] 浏览器 MQTT 保活：`browser_tick` 由 JS 每秒驱动，每 `keep_alive/2` 秒发 PINGREQ，连续 3 次无 PINGRESP 主动断开重连
 - [x] `moon test --target wasm-gc` 105/105；`moon test --target native` 131/131
 - [x] `moon check --target js --deny-warn` 通过，0 警告
-- [x] 发布到 mooncakes（0.3.3）
+- [x] 发布到 mooncakes（0.3.4）
 
 ## 构建与测试
 

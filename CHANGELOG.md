@@ -4,6 +4,8 @@
 
 ## [Unreleased]
 
+## [0.3.4] - 2026-11-07
+
 ### Added
 
 - `core/` 会话恢复纯计算层：本地订阅表记录 topic filter 与 QoS；CONNACK 带 `session_present=0` 时自动把已记录订阅打包成 SUBSCRIBE 帧重发，`session_present=1` 信任 broker 侧保留。`browser/` 胶水层在 subscribe 时把待确认订阅登记进 Core，SUBACK 通过后由 Core 自动落库；浏览器 demo 用 `clean_session=true` 实测重连后自动重订 1 个 topic 并收到 SUBACK。
@@ -23,6 +25,7 @@
 - 测试数 100/125 → 102/128；`async/` 两条审查反例与 `client/` 一条插帧派发用例转成正式回归测试（CONNACK 前订阅不产帧、重连后重发在途 QoS1、等 PUBACK 时插 PUBLISH 不丢）。
 - 测试数 102/128 → 105/131；`protocol/` 补 3 条畸形 PUBLISH 帧回归测试（QoS0 置 DUP、QoS1 零 packet_id 应拒绝，QoS1 带非零 id 的 DUP 应放行）。
 - `moon.mod` keywords：`blocking` → `websocket` / `browser` / `wasm`，与浏览器事件驱动的现定位对齐。
+- 版本 0.3.3 → 0.3.4；发布到 mooncakes `Duckweed/moon-mqtt@0.3.4`。
 
 ## [0.3.3] - 2026-10-26
 

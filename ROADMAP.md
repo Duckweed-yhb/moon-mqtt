@@ -1,7 +1,7 @@
 # moon-mqtt Roadmap
 
-> 更新：2026-11-02
-> 当前版本：0.3.3（mooncakes latest）
+> 更新：2026-11-07
+> 当前版本：0.3.4（mooncakes latest）
 > 状态：对照官网验收 9 条自检通过；浏览器 demo 已上线
 
 ## 总评
@@ -57,6 +57,12 @@
 - `client/` 层 `Conn` 接缝 + 脚本化假连接，补 22 条主路径单测（`client_wbtest.mbt` 共 25 条）
 - `browser/` 自动重连成功后归零失败计数：原 `MAX_RECONNECT=3` 实为「整页共 3 次」，现为「连续失败最多 3 次」
 - 测试数 82/85 → 82/107；README / `docs/ARCHITECTURE.md` / 申报书同步
+
+### 0.3.4（2026-11-07）
+
+- `core/` 会话恢复纯计算层、`async/` 非阻塞外观骨架、`browser/` JS 驱动保活 tick
+- `client/` 握手等待期不再丢弃插帧 PUBLISH；`protocol/` 收紧 PUBLISH 畸形帧（QoS0 禁 DUP、QoS1/2 packet_id 非零）
+- 测试数 wasm-gc 105/105、native 131/131；发布到 mooncakes `Duckweed/moon-mqtt@0.3.4`
 
 ## 下一阶段（11 月–1 月）
 

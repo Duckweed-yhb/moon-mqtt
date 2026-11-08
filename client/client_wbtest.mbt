@@ -7,9 +7,10 @@
 /// 的那个缺口。
 ///
 /// 覆盖：connect 的 CONNACK 接受 / 拒绝 / 错帧 / 半帧超时，QoS0 直发、
-/// QoS1 PUBACK、QoS2 四步握手与错帧，SUBACK 接受 / 拒绝，poll_once 的
-/// 入站派发与 QoS2 去重，poll_loop 自动心跳，disconnect，以及 read_frame
-/// 的 16MB 上限与变长长度溢出。
+/// QoS1 PUBACK、QoS2 四步握手与错帧，SUBACK 接受 / 拒绝，握手等待期间
+/// 插入的业务 PUBLISH 与入站 PUBREL 消化，poll_once 的入站派发与 QoS2
+/// 去重，poll_loop 自动心跳，disconnect，以及 read_frame 的 16MB 上限
+/// 与变长长度溢出。
 ///
 /// 说明：本文件是白盒测试（同一包内），所以能直接用 `Conn` 与 `handshake`，
 /// 不需要 `@client.` 前缀；公开 API 一行没改。
@@ -317,6 +318,24 @@ test "subscribe prefixes topic errors" {
   }
 }
 
+test "subscribe waits SUBACK while dispatching interleaved QoS1 publish" {
+  let out : Array[Array[Int]] = []
+  let closed : Array[Int] = []
+  // 等待 SUBACK 期间先到一条 QoS1 业务 PUBLISH(pid=9)，再到目标 SUBACK(pid=1)
+  let inbound = @protocol.encode_publish(
+    @protocol.PublishPacket::new("sensors/x", [7], @protocol.qos1(), false, false, 9),
+  )
+  let c = f_connected(f_script([inbound, f_suback(1, 0x00)]), out, closed)
+  match c.subscribe("sensors/#", @protocol.qos1()) {
+    Ok(_) => ()
+    Err(e) => fail("subscribe failed: " + e)
+  }
+  // read_control 必须消化插入的业务帧并自动回 PUBACK(9)，不能把它当成「expected SUBACK」丢掉
+  assert_eq(out.length(), 3)
+  assert_eq(out[1][0], 0x82) // SUBSCRIBE
+  assert_eq(out[2], f_pid(0x40, 9)) // 插入帧的 PUBACK
+}
+
 // ---------- poll ----------
 
 test "poll_once returns false when nothing arrives" {
@@ -405,6 +424,21 @@ test "poll_loop sends PINGREQ when keep_alive elapses" {
   }
   assert_eq(out.length(), 2)
   assert_eq(out[1], [0xC0, 0x00]) // PINGREQ
+}
+
+test "ping waits PINGRESP while answering interleaved PUBREL with PUBCOMP" {
+  let out : Array[Array[Int]] = []
+  let closed : Array[Int] = []
+  // 等待 PINGRESP 期间先到一条入站 PUBREL(pid=5)，再到 PINGRESP
+  let c = f_connected(f_script([f_pid(0x62, 5), [0xD0, 0x00]]), out, closed)
+  match c.ping() {
+    Ok(_) => ()
+    Err(e) => fail("ping failed: " + e)
+  }
+  // PINGREQ 先写出；插入的 PUBREL 被 read_control 消化并自动回 PUBCOMP(5)
+  assert_eq(out.length(), 3)
+  assert_eq(out[1], [0xC0, 0x00]) // PINGREQ
+  assert_eq(out[2], f_pid(0x70, 5)) // 插入 PUBREL 的 PUBCOMP
 }
 
 // ---------- disconnect / 分帧边界 ----------

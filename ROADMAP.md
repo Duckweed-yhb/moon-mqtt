@@ -1,6 +1,6 @@
 # moon-mqtt Roadmap
 
-> 更新：2026-11-07
+> 更新：2026-11-09
 > 当前版本：0.3.4（mooncakes latest）
 > 状态：对照官网验收 9 条自检通过；浏览器 demo 已上线
 
@@ -63,6 +63,11 @@
 - `core/` 会话恢复纯计算层、`async/` 非阻塞外观骨架、`browser/` JS 驱动保活 tick
 - `client/` 握手等待期不再丢弃插帧 PUBLISH；`protocol/` 收紧 PUBLISH 畸形帧（QoS0 禁 DUP、QoS1/2 packet_id 非零）
 - 测试数 wasm-gc 105/105、native 131/131；发布到 mooncakes `Duckweed/moon-mqtt@0.3.4`
+
+### 未发布维护（2026-11-09）
+
+- `client/` 补 2 条 QoS2 握手插帧回归用例：等 PUBREC 期间消化入站 QoS1 PUBLISH 并回 PUBACK；等 PUBCOMP 期间消化入站 PUBREL 并回 PUBCOMP；`client_wbtest.mbt` 共 27 条
+- 本轮实测 wasm-gc 105/105、native 135/135；`moon check --target js --deny-warn` 0 警告；改动未发版，并入下一个版本号
 
 ## 下一阶段（11 月–1 月）
 

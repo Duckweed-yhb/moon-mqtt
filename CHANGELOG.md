@@ -4,6 +4,10 @@
 
 ## [Unreleased]
 
+### Changed
+
+- 测试数 105/131 → 105/135；`client/` 补 2 条 QoS2 握手插帧回归用例（等 PUBREC 期间消化入站 QoS1 PUBLISH 并回 PUBACK；等 PUBCOMP 期间消化入站 PUBREL 并回 PUBCOMP），`client_wbtest.mbt` 共 27 条。未改动公开 API 与生产逻辑。
+
 ## [0.3.4] - 2026-11-07
 
 ### Added

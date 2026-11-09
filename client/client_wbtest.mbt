@@ -8,8 +8,9 @@
 ///
 /// 覆盖：connect 的 CONNACK 接受 / 拒绝 / 错帧 / 半帧超时，QoS0 直发、
 /// QoS1 PUBACK、QoS2 四步握手与错帧，SUBACK 接受 / 拒绝，握手等待期间
-/// 插入的业务 PUBLISH 与入站 PUBREL 消化，poll_once 的入站派发与 QoS2
-/// 去重，poll_loop 自动心跳，disconnect，以及 read_frame 的 16MB 上限
+/// （含 QoS2 等 PUBREC、等 PUBCOMP 两个等待点）插入的业务 PUBLISH 与入站
+/// PUBREL 消化，poll_once 的入站派发与 QoS2 去重，poll_loop 自动心跳，
+/// disconnect，以及 read_frame 的 16MB 上限
 /// 与变长长度溢出。
 ///
 /// 说明：本文件是白盒测试（同一包内），所以能直接用 `Conn` 与 `handshake`，
@@ -261,6 +262,43 @@ test "publish qos2 runs the full PUBREC/PUBREL/PUBCOMP handshake" {
   assert_eq(out.length(), 3)
   assert_eq(out[1][0], 0x34) // QoS2 PUBLISH
   assert_eq(out[2], f_pid(0x62, 1)) // PUBREL
+}
+
+test "publish qos2 answers interleaved qos1 publish while waiting for PUBREC" {
+  let out : Array[Array[Int]] = []
+  let closed : Array[Int] = []
+  // 入站 QoS1 PUBLISH(pid=8) 先于目标 PUBREC(pid=1)；随后给 PUBCOMP(pid=1) 走完握手
+  let inbound = @protocol.encode_publish(
+    @protocol.PublishPacket::new("sensors/x", [7], @protocol.qos1(), false, false, 8),
+  )
+  let tail = f_script([inbound, f_pid(0x50, 1), f_pid(0x70, 1)])
+  let c = f_connected(tail, out, closed)
+  match c.publish("a/b", [7], @protocol.qos2()) {
+    Ok(_) => ()
+    Err(e) => fail(e)
+  }
+  // 出站序列：CONNECT、QoS2 PUBLISH(1)、插入帧的 PUBACK(8)、PUBREL(1)
+  assert_eq(out.length(), 4)
+  assert_eq(out[1][0], 0x34)
+  assert_eq(out[2], f_pid(0x40, 8))
+  assert_eq(out[3], f_pid(0x62, 1))
+}
+
+test "publish qos2 answers inbound PUBREL while waiting for PUBCOMP" {
+  let out : Array[Array[Int]] = []
+  let closed : Array[Int] = []
+  // 先到目标 PUBREC(pid=1)；第二次等待 PUBCOMP 期间先到入站 PUBREL(pid=9)，再到目标 PUBCOMP(pid=1)
+  let tail = f_script([f_pid(0x50, 1), f_pid(0x62, 9), f_pid(0x70, 1)])
+  let c = f_connected(tail, out, closed)
+  match c.publish("a/b", [7], @protocol.qos2()) {
+    Ok(_) => ()
+    Err(e) => fail(e)
+  }
+  // 出站序列：CONNECT、QoS2 PUBLISH(1)、PUBREL(1)、插入 PUBREL 的 PUBCOMP(9)
+  assert_eq(out.length(), 4)
+  assert_eq(out[1][0], 0x34)
+  assert_eq(out[2], f_pid(0x62, 1))
+  assert_eq(out[3], f_pid(0x70, 9))
 }
 
 test "publish qos2 rejects PUBACK where PUBREC was expected" {

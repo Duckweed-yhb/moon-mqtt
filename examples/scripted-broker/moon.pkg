@@ -1,0 +1,23 @@
+///|
+/// examples/scripted-broker — 不连网络的端到端 QoS 握手演示
+///
+/// 用一个进程内的「脚本化 broker」实现 `client` 包要求的 `Conn` 接缝：
+/// 客户端写什么帧，broker 就按 MQTT 3.1.1 该回什么帧塞进入站队列。
+/// 于是整条链路（CONNECT/CONNACK → SUBSCRIBE/SUBACK → PUBLISH QoS1/PUBACK
+/// → PUBLISH QoS2/PUBREC/PUBREL/PUBCOMP → PINGREQ/PINGRESP →
+/// UNSUBSCRIBE/UNSUBACK → DISCONNECT）都能在 `moon run` 里跑完。
+///
+/// 用途有三：
+///   1. 验收要求的「可运行示例」——不需要 broker 进程、不需要网络；
+///   2. 给 `connect_with_conn` 这个传输层接缝一个真实用例（CI 会跑）；
+///   3. 演示 QoS2 的四步握手在真实客户端代码里怎么走完。
+///
+/// `client` 依赖 C FFI socket，只有 native 后端，示例随之只声明 native。
+supported_targets = "native"
+
+pkgtype(kind: "executable")
+
+import {
+  "Duckweed/moon-mqtt/client",
+  "Duckweed/moon-mqtt/protocol",
+}

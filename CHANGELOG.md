@@ -6,6 +6,11 @@
 
 ### Added
 
+- `client/connect_with_conn` + `pub(open) trait Conn`：允许调用方自带传输层（QUIC / 串口 / 进程内回环 / 测试夹具）。生产路径仍是 `connect_opts` 的真实 TCP，握手语义完全一致。trait 以前是只读的，外部包无法实现，`pub(open)` 把这条接缝打开。
+- `examples/scripted-broker`：进程内脚本化 broker，按 MQTT 3.1.1 应答，端到端跑完 CONNECT/CONNACK → SUBSCRIBE/SUBACK → PUBLISH QoS1/PUBACK → PUBLISH QoS2/PUBREC-PUBREL-PUBCOMP → PINGREQ/PINGRESP → UNSUBSCRIBE/UNSUBACK → DISCONNECT。不需要 broker 进程与网络，CI 会跑它。
+
+### Added
+
 - `protocol/roundtrip_test.mbt`：PUBLISH 编解码的随机往返测试。固定种子 LCG 生成 200 组 topic / payload / QoS / retain / dup 组合，逐字段比对 decode(encode(x)) == x；另测中文 topic 的字节长度前缀、以及 QoS0+DUP 必须被拒。失败可复现（种子写死）。
 
 ## [0.3.13] - 2026-11-11

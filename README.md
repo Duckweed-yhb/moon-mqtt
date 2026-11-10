@@ -121,6 +121,7 @@ API：
 |---|---|---|
 | `examples/pubsub` | `moon run examples/pubsub` | 报文编解码往返，不连 broker |
 | `examples/resume` | `moon run examples/resume` | QoS2 中断重连时间线，纯计算 |
+| `examples/scripted-broker` | `moon run examples/scripted-broker --target native` | 进程内脚本化 broker：CONNECT/SUBSCRIBE/PUBLISH QoS1+QoS2/PING/UNSUBSCRIBE/DISCONNECT 全链路，不需要网络 |
 | `examples/browser-demo` | `pwsh scripts/build-demo.ps1` | 浏览器端到端，页面在 `docs/demo/` |
 | `examples/ws-spike` | `moon build --target js examples/ws-spike` | 裸 WebSocket spike，留作协议层对照 |
 
@@ -255,7 +256,7 @@ sequenceDiagram
 - [x] 浏览器 MQTT 保活：`browser_tick` 由 JS 每秒驱动，每 `keep_alive/2` 秒发 PINGREQ，连续 3 次无 PINGRESP 主动断开重连
 - [x] 事件 → 动作的决策表：`core/plan_event` 把「该不该关连接、该回调谁」做成纯函数，`browser/` 与 `async/` 共用同一张表
 - [x] 主题校验（§4.7）：publish 的 topic name 拒绝空串 / 通配符 / U+0000；subscribe 的过滤器拒绝 `a/#/b`、`a/x+` 这类越界写法；解码侧同样拒绝 broker 发来的非法 topic
-- [x] `moon test --target wasm-gc` 141/141；`moon test --target native` 180/180（js 后端本机缺 node，交给 CI 跑）
+- [x] `moon test --target wasm-gc` 144/144；`moon test --target native` 183/183（js 后端本机缺 node，交给 CI 跑）
 - [x] `moon check --target js --deny-warn` 通过，0 警告
 - [x] 发布到 mooncakes（0.3.13）
 
@@ -264,8 +265,8 @@ sequenceDiagram
 ```bash
 moon check
 moon check --target js --deny-warn   # 0 警告
-moon test --target wasm-gc           # 141/141
-moon test --target native            # 180/180
+moon test --target wasm-gc           # 144/144
+moon test --target native            # 183/183
 moon run examples/pubsub
 moon run examples/resume
 pwsh scripts/build-demo.ps1          # 浏览器 demo

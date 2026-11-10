@@ -79,6 +79,12 @@ jobs:
       - name: Run example (resume)
         run: moon run examples/resume
 
+      # examples/scripted-broker：进程内脚本化 broker，端到端跑完
+      # CONNECT → SUBSCRIBE → PUBLISH(QoS1/QoS2) → PING → UNSUBSCRIBE → DISCONNECT，
+      # 不需要 broker 进程与网络。
+      - name: Run example (scripted-broker)
+        run: moon run examples/scripted-broker --target native
+
   release-meta:
     name: release metadata
     runs-on: ubuntu-latest

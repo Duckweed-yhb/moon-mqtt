@@ -26,7 +26,7 @@ fn read_timeout_ms() -> Int32 {
 /// 之所以是 `pub`：`MqttClient` 是 pub 类型，它的字段类型不能引用 priv
 /// trait。这是内部接缝，不打算让使用者自己实现；对外 API 仍是
 /// `connect_opts` / `publish` / `subscribe` / `poll_loop` 这一套。
-pub trait Conn {
+pub(open) trait Conn {
   fn write(Self, Array[Int32]) -> Result[Unit, String]
   fn read_some(Self, Int32) -> Result[Array[Int32], String]
   fn wait_read(Self, Int32) -> Result[Bool, String]
@@ -111,6 +111,21 @@ pub fn connect_opts(
     Ok(t) => t
     Err(e) => return Err(e)
   }
+  handshake(tcp, host, port, pkt)
+}
+
+///|
+/// 用外部提供的连接建立客户端：给「自己管传输层」的调用方留的接缝。
+///
+/// 生产路径是 `connect_opts`（真实 TCP）；这个入口用于 QUIC / 串口 / 进程内
+/// 回环等自定义传输，也用于不依赖网络的可跑示例与集成测试。握手语义与
+/// `connect_opts` 完全一致（任何失败都会关闭连接）。
+pub fn connect_with_conn(
+  tcp : &Conn,
+  host : String,
+  port : Int32,
+  pkt : @protocol.ConnectPacket,
+) -> Result[MqttClient, String] {
   handshake(tcp, host, port, pkt)
 }
 

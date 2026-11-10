@@ -53,6 +53,7 @@ type SubHandler = (String, Array[Int]) -> Unit
 
 struct SubscriptionReg {
   filter : String
+  qos : @protocol.QoS
   handler : SubHandler
 }
 
@@ -290,12 +291,12 @@ pub fn MqttClient::subscribe_with_handler(
       let mut i = 0
       while i < self.subs.length() {
         if self.subs[i].filter == topic {
-          self.subs[i] = { filter: topic, handler }
+          self.subs[i] = { filter: topic, qos: qos, handler }
           return Ok(())
         }
         i = i + 1
       }
-      self.subs.push({ filter: topic, handler })
+      self.subs.push({ filter: topic, qos: qos, handler })
       Ok(())
     }
     Err(e) => Err(e)
@@ -534,9 +535,10 @@ pub fn MqttClient::reconnect(self : MqttClient) -> Result[MqttClient, String] {
     Err(e) => return Err(e)
   }
   c.set_session_store(old_store)
+  let present = c.is_session_present()
   // session_present=false 时 broker 已丢会话，本地在途表必须清空，
   // 否则僵尸条目会在下一次重连被当作待重放帧发给 broker。
-  if !c.is_session_present() {
+  if !present {
     c.store[0] = @session.SessionStore::new()
     c.inbound_qos2 = []
   } else {
@@ -554,12 +556,29 @@ pub fn MqttClient::reconnect(self : MqttClient) -> Result[MqttClient, String] {
       }
     }
   }
-  // 把本地订阅表搬过去（broker 端 clean_session=false 时通常还在，
-  // 但 clean_session=true 时要重发 SUBSCRIBE）。这里照搬本地注册表，
-  // 由调用方决定是否重发 SUBSCRIBE；默认不重发，仅保留回调用于
-  // 后续 PUBLISH 派发。
+  // 把本地订阅表搬过去；回调先恢复，后续 PUBLISH 才有地方派发。
   for reg in old_subs {
     c.subs.push(reg)
+  }
+  // broker 丢了会话（clean_session=true 或 session_present=false）时，本地
+  // 回调还在但 broker 端订阅已经没了，必须重发 SUBSCRIBE，否则重连后一条
+  // 消息都收不到。重订帧发出去即可，SUBACK 由后续 poll 消化。
+  if !present {
+    for reg in old_subs {
+      let (s0, pid) = @session.alloc_control_packet_id(c.store[0])
+      c.store[0] = s0
+      if pid != 0 {
+        let sub = @protocol.Subscription::new(reg.filter, reg.qos)
+        let pkt = @protocol.SubscribePacket::new(pid, [sub])
+        match c.tcp.write(@protocol.encode_subscribe(pkt)) {
+          Ok(_) => ()
+          Err(e) => {
+            c.tcp.close()
+            return Err("resubscribe write failed: " + e)
+          }
+        }
+      }
+    }
   }
   Ok(c)
 }

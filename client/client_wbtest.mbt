@@ -513,3 +513,23 @@ test "poll_once refuses an overflowing remaining length" {
     Err(e) => assert_eq(e, "remaining length overflow")
   }
 }
+
+test "subscribe_with_handler records qos for later resubscribe" {
+  let out : Array[Array[Int]] = []
+  let closed : Array[Int] = []
+  let c = f_connected(f_suback(1, 0x00), out, closed)
+  let h : SubHandler = fn(topic, payload) {
+    ignore(topic)
+    ignore(payload)
+  }
+  match c.subscribe_with_handler("a/#", @protocol.qos1(), h) {
+    Ok(_) => ()
+    Err(e) => fail(e)
+  }
+  assert_eq(c.subs.length(), 1)
+  // 重连时 session_present=false 要靠这条 QoS 重建 SUBSCRIBE
+  match c.subs[0].qos {
+    @protocol.QoS::AtLeastOnce => ()
+    _ => fail("stored qos should be at least once")
+  }
+}

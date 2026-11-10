@@ -4,6 +4,8 @@
 
 ## [Unreleased]
 
+## [0.3.12] - 2026-11-11
+
 ### Added
 
 - `client/MqttClient::unsubscribe`：native 阻塞式客户端此前只能订阅、没有退订（`browser` 与 `async` 都有）。现在发 UNSUBSCRIBE 并等匹配的 UNSUBACK，确认后才删本地 handler——先删的话 UNSUBACK 失败会让本地少 handler、broker 那头还在推，两边状态不一致且本地看不出来。UNSUBACK 的 packet id 不匹配时报错且保留 handler。

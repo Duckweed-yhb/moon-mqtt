@@ -78,7 +78,13 @@ pub fn packet_type_from_int(v : Int32) -> PacketType? {
 
 ///|
 /// 剩余长度变长编码（规范 §2.2.3）：每字节 7 位有效 + MSB 续传，最多 4 字节。
+///
+/// 上限 268435455（4 字节 × 7 位）。越界直接失败：旧实现会把 4 字节写满后
+/// 静默丢掉高位，编码出一个长度不对的固定头，整条报文从此错位。
 pub fn encode_remaining_length(len : Int32) -> Array[Int32] {
+  if len < 0 || len > 268435455 {
+    abort("mqtt: remaining length out of range: " + len.to_string())
+  }
   let out : Array[Int32] = []
   let mut value = len
   let mut count = 0

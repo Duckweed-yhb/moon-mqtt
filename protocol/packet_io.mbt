@@ -28,7 +28,14 @@ pub fn ByteWriter::push_byte(self : ByteWriter, b : Int32) -> Unit {
 
 ///|
 /// 追加大端 2 字节无符号整数（MQTT 16 位整数均为大端）。
+///
+/// 越界直接失败而不是截断：`push_string` 用它写长度前缀，一个超过
+/// 65535 字节的字符串会被静默写成错误长度，broker 按那个长度解析，
+/// 整条报文从此错位——这种错在链路上根本看不出来。
 pub fn ByteWriter::push_u16(self : ByteWriter, v : Int32) -> Unit {
+  if v < 0 || v > 0xFFFF {
+    abort("mqtt: 16-bit field out of range: " + v.to_string())
+  }
   self.bytes.push((v >> 8) & 0xFF)
   self.bytes.push(v & 0xFF)
 }

@@ -874,3 +874,48 @@ test "decode rejects wildcard topics from broker" {
     Ok(_) => fail("wildcard topic should not decode")
   }
 }
+
+///|
+/// SUBACK 失败后挂起条目必须摘掉。
+///
+/// 旧实现只在 all_accepted 时摘条目：失败那次永久挂在 pending_subscribes 里，
+/// 之后同一个 pid 再来一个成功 SUBACK，就会把这条被拒绝的订阅补记进订阅表，
+/// 于是每次重连都替它重订、broker 每次都拒绝。
+test "failed suback does not leak pending subscribe" {
+  let core = @core.ClientCore::new(@protocol.ConnectPacket::new("core-test"))
+  let _ = core.feed([0x20, 0x02, 0x00, 0x00])
+  let pid = core.allocate_control_packet_id()
+  core.record_outbound_subscribe(pid, [
+    @protocol.Subscription::new("a/b", @protocol.qos1()),
+  ])
+  // SUBACK(pid, Failure)：订阅被拒
+  let hi = (pid >> 8) & 0xFF
+  let lo = pid & 0xFF
+  let _ = core.feed([0x90, 0x03, hi, lo, 0x80])
+  assert_eq(core.subscriptions().length(), 0)
+  // 同一个 pid 再来一个成功 SUBACK：条目已经被摘掉，不该补记。
+  let _ = core.feed([0x90, 0x03, hi, lo, 0x01])
+  assert_eq(core.subscriptions().length(), 0)
+}
+
+///|
+/// `subscriptions()` 必须返回拷贝：调用方 push 不能改到内部订阅表。
+test "subscriptions accessor returns a copy" {
+  let core = @core.ClientCore::new(@protocol.ConnectPacket::new("core-test"))
+  let _ = core.feed([0x20, 0x02, 0x00, 0x00])
+  let pid = core.allocate_control_packet_id()
+  core.record_outbound_subscribe(pid, [
+    @protocol.Subscription::new("a/b", @protocol.qos1()),
+  ])
+  let hi = (pid >> 8) & 0xFF
+  let lo = pid & 0xFF
+  let _ = core.feed([0x90, 0x03, hi, lo, 0x01])
+  assert_eq(core.subscriptions().length(), 1)
+  // 拿到副本后往里塞东西，内部表不应变化。
+  let snapshot = core.subscriptions()
+  snapshot.push(@protocol.Subscription::new("x/y", @protocol.qos0()))
+  assert_eq(core.subscriptions().length(), 1)
+  // 重订帧只应该带那一条真实订阅。
+  let resub = core.resubscribe_bytes()
+  assert_true(resub.length() > 0)
+}

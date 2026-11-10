@@ -204,11 +204,12 @@ pub fn ClientCore::feed(
           }
           @protocol.IncomingPacket::Suback(s) => {
             // SUBACK：broker 对出站 SUBSCRIBE 的应答。
-            // 全部 accepted 时把对应 pending_subscribes 里的 Subscription 落库，
-            // 再从映射表中删除该条目；任一 Failure 则不记录，条目保留待胶水层处理。
-            if s.all_accepted() {
-              self.commit_pending_subscribe(s.packet_id)
-            }
+            //
+            // 无论成败都要把 pending 条目摘掉：以前只在 all_accepted 时才摘，
+            // 失败那次会永远挂在 pending_subscribes 里——既泄漏内存，又会让
+            // 之后同一个 pid 的 SUBACK 把这条失败的订阅补记进订阅表。
+            let accepted = s.all_accepted()
+            self.commit_pending_subscribe(s.packet_id, accepted)
             events.push(CoreEvent::SubackReceived(s))
           }
           @protocol.IncomingPacket::PingResp => {
@@ -338,10 +339,17 @@ pub fn ClientCore::record_outbound_subscribe(
 }
 
 ///|
-/// SUBACK 全部 accepted 后调用：把 pid 对应的 Subscription 列表逐条落库，
-/// 并从 pending_subscribes 中移除该条目。pid 未登记时静默忽略（比如重订帧
-/// 由 resubscribe_bytes() 产出但没走 record_outbound_subscribe）。
-fn ClientCore::commit_pending_subscribe(self : ClientCore, pid : Int32) -> Unit {
+/// SUBACK 到达后调用：摘掉 pid 对应的挂起条目；`accepted` 为真时把
+/// 该次订阅逐条落库。
+///
+/// 摘条目是无条件的——失败也要摘，否则条目永久泄漏，且后续同 pid 的
+/// SUBACK 会把一条被 broker 拒绝的订阅补记进本地订阅表，之后每次重连
+/// 都会替它重订，broker 每次都拒绝。
+fn ClientCore::commit_pending_subscribe(
+  self : ClientCore,
+  pid : Int32,
+  accepted : Bool,
+) -> Unit {
   let mut found : Array[@protocol.Subscription] = []
   let kept : Array[(Int32, Array[@protocol.Subscription])] = []
   for entry in self.pending_subscribes {
@@ -352,17 +360,27 @@ fn ClientCore::commit_pending_subscribe(self : ClientCore, pid : Int32) -> Unit 
     }
   }
   self.pending_subscribes = kept
-  for sub in found {
-    self.record_subscription(sub.topic, sub.qos)
+  if accepted {
+    for sub in found {
+      self.record_subscription(sub.topic, sub.qos)
+    }
   }
 }
 
 ///|
-/// 当前已记录的订阅列表（只读副本，供测试 / 胶水层查询）。
+/// 当前已记录的订阅列表。
+///
+/// 返回的是**拷贝**：`Array` 是引用语义，直接给出内部数组会让调用方
+/// 一个 `push` 就改掉客户端的订阅表（重连重订会跟着错），而文档还写着
+/// 「只读」。
 pub fn ClientCore::subscriptions(
   self : ClientCore,
 ) -> Array[@protocol.Subscription] {
-  return self.subscriptions
+  let out : Array[@protocol.Subscription] = []
+  for sub in self.subscriptions {
+    out.push(sub)
+  }
+  return out
 }
 
 ///|

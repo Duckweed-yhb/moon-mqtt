@@ -4,11 +4,23 @@
 
 ## [Unreleased]
 
+### Added
+
+- `core/plan_event`：事件 → 胶水层动作的纯决策表（`DispatchAction`：`Connected(session_present)` / `Refused(code)` / `Fatal(msg)` / `Deliver` / `Subacked` / `Unknown` / `Ignore`），配套 `DispatchAction::needs_close`、`return_code_name`、`return_code_byte`。`browser/` 与 `async/` 共用这一张表，不再各写一份 `match`。补 7 条单测（`core/dispatch_wbtest.mbt`），CONNACK 事件由真实字节走 `decode_packet` 产出。
+- `browser/on_error`：连接级错误回调（CONNACK 拒绝 / 畸形帧），注册一次对后续重连同样生效。未注册时错误仍打到 console，不再静默。
+- `async/AsyncClient::fatal()`：不可恢复错误原因（`None` 表示连接仍可用）。
+
+### Fixed
+
+- `browser/` 吞掉致命事件：`browser_on_message` 的 `_ => ()` 会把 `FramerError` 与拒绝 CONNACK 一并忽略，连接留在「开着但收不到正确报文」的状态，与 README「收到 FramerError 应断开」的约定相反。现在两条路径都会关 WebSocket 并上报。
+- `async/` 畸形帧后继续吃字节：`feed_bytes` 在 `FramerError` 之后仍继续解析（帧边界已丢，后续字节会被解成垃圾帧）。现在落成 `fatal` 并冻结实例。
+- `browser_tick` 首帧多发 PINGREQ：`g_last_ping_ms` 初值 0 会让连接建立后的第一次 tick 立刻判成「早该发」，白白多发一记 PINGREQ；现在以首次 tick 为基准，断开时归零。
+
 ### Changed
 
+- 测试数 118/151 → 126/159；js 后端本机缺 node 未跑，交给 CI。
 - `core/` 新增 `next_action`：保活决策（禁用 / 等待 / 发 PINGREQ / 判定死链）抽成纯函数，`browser_tick` 改为调用它；补 5 条单测，覆盖禁用、未到点、到点、连续未应答。
 - `client/` 新增 `plan_resume`：重连的会话语义（清空 / 重放 / 重订）抽成纯函数，`reconnect` 改为按计划执行；补 2 条单测。
-- 测试数 113/144 → 118/151。
 
 ## [0.3.5] - 2026-11-10
 

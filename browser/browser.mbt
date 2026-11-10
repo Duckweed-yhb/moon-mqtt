@@ -34,6 +34,12 @@ pub type ConnectHandler = () -> Unit
 /// 订阅成功（收到 SUBACK）时的回调。在这个回调里发布，能保证 broker 已建立订阅。
 pub type SubackHandler = () -> Unit
 
+///|
+/// 连接级错误回调：收到 CONNACK 拒绝码，或帧组装进入不可恢复状态时触发。
+/// 触发时 socket 已经被关掉，JS 侧会按既有的 1 秒重连策略重连（除非是主动 disconnect）。
+/// 不注册这个回调也不会静默失败——错误仍会打到 console。
+pub type ErrorHandler = (String) -> Unit
+
 // 全局状态（extern "js" 不支持函数类型参数，MoonBit 顶层不支持 let mut）
 
 ///|
@@ -50,6 +56,9 @@ let g_connect : Array[ConnectHandler?] = [None]
 
 ///|
 let g_suback : Array[SubackHandler?] = [None]
+
+///|
+let g_error : Array[ErrorHandler?] = [None]
 
 ///|
 /// 上次发出 PINGREQ 的毫秒时间戳（JS `Date.now()` 传入）。
@@ -127,6 +136,25 @@ pub fn on_suback(_client : Client, handler : SubackHandler) -> Unit {
 }
 
 ///|
+/// 注册连接级错误回调（CONNACK 拒绝 / 畸形帧）。回调执行时 socket 已关闭。
+/// 注册时机不受 connect() 限制，一次注册对后续重连同样生效。
+pub fn on_error(_client : Client, handler : ErrorHandler) -> Unit {
+  g_error[0] = Some(handler)
+}
+
+///|
+/// 错误上报：console 一定打，注册了 on_error 再转给使用者。
+/// 这条路径以前是直接吞掉的（`_ => ()`），与 README「收到 FramerError
+/// 应断开连接」的约定不符，现在统一走 @core.plan_event 的 Fatal 分支。
+fn report_error(msg : String) -> Unit {
+  println("[browser] " + msg)
+  match g_error[0] {
+    Some(h) => h(msg)
+    None => ()
+  }
+}
+
+///|
 /// 订阅主题。packet_id 与 core/session 共享，避免和 PUBLISH 撞号。
 ///
 /// 同时把 (pid, 订阅) 登记进 core 的 pending_subscribes：收到对应 SUBACK 且
@@ -197,55 +225,74 @@ pub fn browser_on_message(bytes : Array[Int32]) -> Unit {
       match core.feed(bytes) {
         (events, outgoing) => {
           for e in events {
-            match e {
-              @core.CoreEvent::ConnackReceived(c) =>
-                match c.return_code {
-                  @protocol.ConnectReturnCode::ConnectionAccepted => {
-                    if !c.session_present {
-                      // broker 已丢会话：清掉本地在途，避免僵尸重放。
-                      // 已记录的订阅表不受影响（reset_session 只清在途）。
-                      core.reset_session()
-                      // 重订帧由 core.feed() 追加进 outgoing，这里只记数量便于排查。
-                      let subs = core.subscriptions()
-                      println(
-                        "[browser] session_present=0, resubscribe " +
-                        subs.length().to_string() +
-                        " topic(s)",
-                      )
-                    } else {
-                      let frames = core.replay_bytes()
-                      for f in frames {
-                        browser_send(f)
-                      }
-                      println(
-                        "[browser] session_present=1, replay " +
-                        frames.length().to_string() +
-                        " frame(s)",
-                      )
-                    }
-                    match g_connect[0] {
-                      Some(h) => h()
-                      None => ()
-                    }
+            // 事件 → 动作的映射统一在 @core.plan_event 里，不在胶水层各写一份。
+            match @core.plan_event(e) {
+              @core.DispatchAction::Connected(session_present) => {
+                if !session_present {
+                  // broker 已丢会话：清掉本地在途，避免僵尸重放。
+                  // 已记录的订阅表不受影响（reset_session 只清在途）。
+                  core.reset_session()
+                  // 重订帧由 core.feed() 追加进 outgoing，这里只记数量便于排查。
+                  let subs = core.subscriptions()
+                  println(
+                    "[browser] session_present=0, resubscribe " +
+                    subs.length().to_string() +
+                    " topic(s)",
+                  )
+                } else {
+                  let frames = core.replay_bytes()
+                  for f in frames {
+                    browser_send(f)
                   }
-                  _ => {
-                    println("[browser] CONNACK refused")
-                    core.on_transport_close()
-                  }
+                  println(
+                    "[browser] session_present=1, replay " +
+                    frames.length().to_string() +
+                    " frame(s)",
+                  )
                 }
-              @core.CoreEvent::PublishReceived(p) =>
-                match g_handler[0] {
-                  Some(h) => h(p.topic, p.payload)
+                // 重连时 g_last_ping_ms 归零，让保活从这次连接重新计时。
+                g_last_ping_ms[0] = 0
+                match g_connect[0] {
+                  Some(h) => h()
                   None => ()
                 }
-              @core.CoreEvent::SubackReceived(_) => {
+              }
+              @core.DispatchAction::Refused(code) => {
+                // 拒绝码是终局：关 socket 并上报，别让一个「连上了但不通」的
+                // 连接继续跑 keep-alive。
+                g_core[0] = Some(core)
+                report_error(
+                  "CONNACK refused: " +
+                  @core.return_code_name(code) +
+                  " (" +
+                  @core.return_code_byte(code).to_string() +
+                  ")",
+                )
+                close_ws_ffi()
+                return
+              }
+              @core.DispatchAction::Fatal(msg) => {
+                // 帧边界已丢：继续 feed 只会把后续字节解成垃圾帧。
+                g_core[0] = Some(core)
+                report_error("fatal framing error: " + msg)
+                close_ws_ffi()
+                return
+              }
+              @core.DispatchAction::Deliver(topic, payload) =>
+                match g_handler[0] {
+                  Some(h) => h(topic, payload)
+                  None => ()
+                }
+              @core.DispatchAction::Subacked => {
                 println("[browser] suback")
                 match g_suback[0] {
                   Some(h) => h()
                   None => ()
                 }
               }
-              _ => ()
+              @core.DispatchAction::Unknown(t) =>
+                println("[browser] unknown packet type " + t.to_string())
+              @core.DispatchAction::Ignore => ()
             }
           }
           // 出站字节（PUBACK/PUBREC/PUBREL/PUBCOMP 自动应答）写回 broker
@@ -292,6 +339,11 @@ pub fn browser_tick(now_ms : Int32) -> Unit {
             Some(o) => o.keep_alive
             None => 60
           }
+          // 首次 tick（连接刚建立 / 重连后）：以「现在」为基准。
+          // 否则 last_ping=0 会让第一次 tick 就判成「早该发了」，白白多发一记 PINGREQ。
+          if g_last_ping_ms[0] == 0 {
+            g_last_ping_ms[0] = now_ms
+          }
           let action = @core.next_action(
             now_ms,
             g_last_ping_ms[0],
@@ -303,6 +355,8 @@ pub fn browser_tick(now_ms : Int32) -> Unit {
               println("[browser] keepalive timeout, closing socket")
               core.on_transport_close()
               g_core[0] = Some(core)
+              // 下次连接重新计时，不要沿用上一条链路的时间戳。
+              g_last_ping_ms[0] = 0
               close_ws_ffi()
             }
             @core.KeepAliveAction::SendPing => {

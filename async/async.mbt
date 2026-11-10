@@ -21,6 +21,10 @@ pub struct AsyncClient {
   mut pending : Array[Int32]
   /// 待派发事件（CONNACK / PUBLISH / SUBACK / PINGRESP ...）。
   mut events_buf : Array[@core.CoreEvent]
+  /// 不可恢复的错误原因（畸形帧 / 缓冲超限）。一旦置位，本实例不再接受
+  /// 新字节——帧边界已经丢了，继续喂只会把后面的字节解释成垃圾帧。
+  /// 调用方看到 `Some(msg)` 就应关掉自己的 socket 并重建实例。
+  mut fatal : String?
 }
 
 ///|
@@ -30,7 +34,7 @@ pub struct AsyncClient {
 pub fn AsyncClient::new(opts : @protocol.ConnectPacket) -> AsyncClient {
   let core = @core.ClientCore::new(opts)
   let connect_bytes = core.start()
-  return { core, pending: connect_bytes, events_buf: [], }
+  return { core, pending: connect_bytes, events_buf: [], fatal: None, }
 }
 
 ///|
@@ -46,6 +50,10 @@ pub fn AsyncClient::feed_bytes(
   self : AsyncClient,
   bytes : Array[Int32],
 ) -> Unit {
+  // 已经进入不可恢复状态：不再消费新字节，调用方应重建实例。
+  if self.fatal is Some(_) {
+    return
+  }
   match self.core.feed(bytes) {
     (events, outgoing) => {
       for b in outgoing {
@@ -69,10 +77,25 @@ pub fn AsyncClient::feed_bytes(
             }
           _ => ()
         }
+        // 致命事件在这里落账：同一张决策表（@core.plan_event）也供 browser 用。
+        match @core.plan_event(e) {
+          @core.DispatchAction::Fatal(msg) =>
+            if self.fatal is None {
+              self.fatal = Some(msg)
+            }
+          _ => ()
+        }
         self.events_buf.push(e)
       }
     }
   }
+}
+
+///|
+/// 不可恢复错误的原因；`None` 表示这条连接仍可用。看到 `Some` 之后
+/// 必须关掉自己的 socket 并新建实例——帧边界已经丢了。
+pub fn AsyncClient::fatal(self : AsyncClient) -> String? {
+  return self.fatal
 }
 
 ///|

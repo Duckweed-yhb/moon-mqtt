@@ -214,3 +214,22 @@ test "transport close discards undrained pending before reconnect" {
   assert_eq(fresh[0], 0x10)
   assert_eq(fresh.length(), 24)
 }
+
+///|
+/// 畸形固定头（报文类型 0 保留）必须落成 fatal：帧边界已丢，实例不该再吃字节。
+test "malformed frame sets fatal and freezes the client" {
+  let client = @async.AsyncClient::new(
+    @protocol.ConnectPacket::new("async-test"),
+  )
+  let _ = client.drain_pending()
+  assert_true(client.fatal() is None)
+  // 0x00 = 保留报文类型 → Framer 判畸形头，产出 FramerError 事件
+  client.feed_bytes([0x00, 0x00])
+  assert_true(client.fatal() is Some(msg) && msg.length() > 0)
+  let evs = client.drain_events()
+  assert_eq(evs.length(), 1)
+  // 之后继续喂合法 CONNACK 也不许再生效（冻结）
+  client.feed_bytes([0x20, 0x02, 0x00, 0x00])
+  assert_eq(client.drain_events().length(), 0)
+  assert_true(client.state() is @core.CoreState::Connecting)
+}

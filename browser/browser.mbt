@@ -188,6 +188,31 @@ pub fn subscribe(_client : Client, topic : String, qos : @protocol.QoS) -> Unit 
 }
 
 ///|
+/// 退订主题过滤器：编码 UNSUBSCRIBE 并发出去，同时把该 topic 从本地订阅表
+/// 删掉——否则重连时的自动重订会把它订回来。
+///
+/// 过滤器非法（`a/#/b` 这类）时上报并丢弃，不产生半成品帧。
+pub fn unsubscribe(_client : Client, topic : String) -> Unit {
+  match g_core[0] {
+    Some(core) => {
+      let frame = core.unsubscribe(topic)
+      g_core[0] = Some(core)
+      if frame.length() == 0 {
+        // 未连接 / 过滤器非法 / id 用尽：三者都不该静默通过。
+        report_error(
+          "unsubscribe skipped for '" +
+          topic +
+          "' (not connected, bad filter or id exhausted)",
+        )
+        return
+      }
+      browser_send(frame)
+    }
+    None => ()
+  }
+}
+
+///|
 /// 发布消息。QoS0/1/2 全部走 `@core.ClientCore::publish`：
 /// QoS1/2 自动分配 packet_id 并记入在途，PUBACK / PUBREC→PUBREL→PUBCOMP
 /// 由 `browser_on_message` 里的 `core.feed()` 自动推进。

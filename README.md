@@ -86,8 +86,10 @@ API：
 | `on_connect(client, handler)` | 收到 CONNACK 后回调 |
 | `on_suback(client, handler)` | 收到 SUBACK 后回调，适合在这里开始 publish |
 | `on_message(client, handler)` | 收到 PUBLISH 时回调 `(topic, payload)` |
-| `subscribe(client, topic, qos)` | 订阅主题 |
-| `publish(client, topic, payload, qos)` | 发布消息，QoS0/1/2 |
+| `subscribe(client, topic, qos)` | 订阅主题（过滤器非法时上报并拒绝） |
+| `unsubscribe(client, topic)` | 退订并同步删本地订阅表——不删的话重连自动重订会把它订回来 |
+| `publish(client, topic, payload, qos)` | 发布消息，QoS0/1/2（非法 topic 上报并拒绝） |
+| `on_error(client, handler)` | CONNACK 拒绝 / 畸形帧 / 被拒的订阅与发布 |
 | `disconnect(client)` | 发 DISCONNECT 并关闭连接 |
 
 无头 Chrome 实测（2026-11-04，连公共 EMQX，`?autotest=1` 模式，`clean_session=true`）：
@@ -253,17 +255,17 @@ sequenceDiagram
 - [x] 浏览器 MQTT 保活：`browser_tick` 由 JS 每秒驱动，每 `keep_alive/2` 秒发 PINGREQ，连续 3 次无 PINGRESP 主动断开重连
 - [x] 事件 → 动作的决策表：`core/plan_event` 把「该不该关连接、该回调谁」做成纯函数，`browser/` 与 `async/` 共用同一张表
 - [x] 主题校验（§4.7）：publish 的 topic name 拒绝空串 / 通配符 / U+0000；subscribe 的过滤器拒绝 `a/#/b`、`a/x+` 这类越界写法；解码侧同样拒绝 broker 发来的非法 topic
-- [x] `moon test --target wasm-gc` 134/134；`moon test --target native` 170/170（js 后端本机缺 node，交给 CI 跑）
+- [x] `moon test --target wasm-gc` 137/137；`moon test --target native` 173/173（js 后端本机缺 node，交给 CI 跑）
 - [x] `moon check --target js --deny-warn` 通过，0 警告
-- [x] 发布到 mooncakes（0.3.9）
+- [x] 发布到 mooncakes（0.3.10）
 
 ## 构建与测试
 
 ```bash
 moon check
 moon check --target js --deny-warn   # 0 警告
-moon test --target wasm-gc           # 134/134
-moon test --target native            # 170/170
+moon test --target wasm-gc           # 137/137
+moon test --target native            # 173/173
 moon run examples/pubsub
 moon run examples/resume
 pwsh scripts/build-demo.ps1          # 浏览器 demo

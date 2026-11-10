@@ -368,6 +368,35 @@ fn ClientCore::commit_pending_subscribe(
 }
 
 ///|
+/// 退订：分配控制报文 id、编码 UNSUBSCRIBE，并把 topic 从本地订阅表删掉。
+///
+/// 删本地表这一步不能省：断线重连时 `resubscribe_bytes()` 会把表里的订阅
+/// 全量重订一遍，忘删就会把已经退订的 topic 重新订回来。
+///
+/// 返回空数组表示没发（未连接、过滤器非法、id 用尽）——三种情况的判断都
+/// 在进入编码前做完，所以空数组不会产出一条半成品帧。
+pub fn ClientCore::unsubscribe(
+  self : ClientCore,
+  topic : String,
+) -> Array[Int32] {
+  match self.state {
+    CoreState::Connected => ()
+    _ => return []
+  }
+  match @protocol.validate_topic_filter(topic) {
+    Ok(_) => ()
+    Err(_) => return []
+  }
+  let pid = self.allocate_control_packet_id()
+  if pid == 0 {
+    return []
+  }
+  self.forget_subscription(topic)
+  let pkt = @protocol.UnsubscribePacket::new(pid, [topic])
+  return @protocol.encode_unsubscribe(pkt)
+}
+
+///|
 /// 当前已记录的订阅列表。
 ///
 /// 返回的是**拷贝**：`Array` 是引用语义，直接给出内部数组会让调用方

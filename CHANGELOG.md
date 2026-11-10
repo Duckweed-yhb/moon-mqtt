@@ -4,6 +4,42 @@
 
 ## [Unreleased]
 
+### Added
+
+- `browser/unsubscribe`：浏览器层此前只能订阅不能退订（native 与 async 都有）。退订会同步删掉本地订阅表——不删的话重连时的自动重订会把已经退订的 topic 订回来。
+- `core/ClientCore::unsubscribe`：把「分配控制报文 id → 校验过滤器 → 编 UNSUBSCRIBE → 忘掉本地订阅」收进 core，browser / async 只负责把字节送出去。此前这段组帧逻辑只写在 async 里，browser 没有。
+
+### Changed
+
+- `async/unsubscribe` 改为调用 `core.unsubscribe`，删掉重复的组帧代码。
+- 测试数 134/170 → 137/173（退订编帧、未知 topic 仍发帧、未连接 / 非法过滤器拒绝）。
+
+## [0.3.9] - 2026-11-11
+
+### Fixed
+
+- `client/` 读到半帧失败后连接不再继续使用：`read_frame` 没有跨次残留缓冲，超时那一刻已吃掉的字节找不回来，帧边界丢失；继续读会把载荷字节当报文头解出垃圾。现在读帧失败（已消费 ≥1 字节）会把客户端标记成 `desynced`，`read_packet` 与 `poll_once` 立刻报「reconnect required」，而不是假装空闲。
+- `client/poll_loop` 心跳计时只累计**真正空等**的轮次：此前有数据的轮次也按 `timeout_ms` 累加，busy 连接上 PINGREQ 会提前几倍发出。
+
+### Changed
+
+- 测试数 134/168 → 134/170（半帧污染连接、心跳只计空等）。
+
+## [0.3.8] - 2026-11-10
+
+### Fixed
+
+- `core/` SUBACK 失败时挂起条目不再泄漏：旧实现只在 `all_accepted()` 时摘 `pending_subscribes`，被拒那次永久挂着；之后同一个 pid 再来一个成功 SUBACK 会把这条被拒的订阅补记进本地订阅表，于是每次重连都替它重订、broker 每次都拒绝。
+- `core/ClientCore::subscriptions()` 返回拷贝：文档写着「只读副本」，实现却直接返回内部数组（`Array` 是引用语义）。
+- `protocol/ByteWriter::push_u16` 越界不再静默截断（16 位字段写入 >65535 直接失败）：它是 `push_string` / `push_binary` 的长度前缀，截断后 broker 按错长度解析，整条报文错位。
+- `protocol/encode_remaining_length` 越界不再静默丢高位（>268435455 直接失败）。
+
+### Changed
+
+- 测试数 132/166 → 134/168（SUBACK 失败不泄漏、订阅表访问器返回拷贝）。
+
+## [0.3.7] - 2026-11-10
+
 ### Fixed
 
 - `browser/publish` 与 `async/publish` 遇到非法 topic 不再静默丢帧：core 会挡下并返回空字节，此前调用方看到「没报错」就以为发出去了。现在编码前先校验，拒绝原因分别走上报回调（`browser.on_error`）与控制台。

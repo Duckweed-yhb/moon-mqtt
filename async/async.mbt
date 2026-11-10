@@ -207,20 +207,12 @@ pub fn AsyncClient::subscribe(
 ///
 /// 与 `subscribe` 一样，只在 Connected 状态下生效。
 pub fn AsyncClient::unsubscribe(self : AsyncClient, topic : String) -> Unit {
-  match self.core.state() {
-    @core.CoreState::Connected => ()
-    _ => return
-  }
-  let pid = self.core.allocate_control_packet_id()
-  if pid == 0 {
-    return
-  }
-  let pkt = @protocol.UnsubscribePacket::new(pid, [topic])
-  let frame = @protocol.encode_unsubscribe(pkt)
+  // 组帧与「从本地订阅表删掉」都由 core 负责，async / browser 只是把字节
+  // 塞进各自的待发队列——这条逻辑不该在三个胶水层各写一遍。
+  let frame = self.core.unsubscribe(topic)
   for b in frame {
     self.pending.push(b)
   }
-  self.core.forget_subscription(topic)
 }
 
 ///|

@@ -919,3 +919,41 @@ test "subscriptions accessor returns a copy" {
   let resub = core.resubscribe_bytes()
   assert_true(resub.length() > 0)
 }
+
+///|
+/// 退订：编出 UNSUBSCRIBE(0xA2)、把 topic 从订阅表删掉；未连接 / 非法
+/// 过滤器一律返回空数组，不产生半成品帧。
+test "unsubscribe encodes a frame and forgets the topic" {
+  let core = @core.ClientCore::new(@protocol.ConnectPacket::new("core-test"))
+  let _ = core.feed([0x20, 0x02, 0x00, 0x00])
+  core.record_subscription("a/b", @protocol.qos1())
+  assert_eq(core.subscriptions().length(), 1)
+  let frame = core.unsubscribe("a/b")
+  assert_true(frame.length() > 0)
+  assert_eq(frame[0], 0xA2)
+  // 本地订阅表必须同步删掉，否则重连重订会把它订回来。
+  assert_eq(core.subscriptions().length(), 0)
+}
+
+///|
+/// 退订不在表里的 topic：帧照发（broker 侧可能还存着），本地表不受影响。
+test "unsubscribe of unknown topic still emits a frame" {
+  let core = @core.ClientCore::new(@protocol.ConnectPacket::new("core-test"))
+  let _ = core.feed([0x20, 0x02, 0x00, 0x00])
+  let frame = core.unsubscribe("x/y")
+  assert_true(frame.length() > 0)
+  assert_eq(core.subscriptions().length(), 0)
+}
+
+///|
+/// 未连接 / 过滤器非法时返回空数组（不占 packet id、不发半成品帧）。
+test "unsubscribe is rejected before connection or with a bad filter" {
+  let fresh = @core.ClientCore::new(@protocol.ConnectPacket::new("core-test"))
+  assert_eq(fresh.unsubscribe("a/b").length(), 0)
+  let core = @core.ClientCore::new(@protocol.ConnectPacket::new("core-test"))
+  let _ = core.feed([0x20, 0x02, 0x00, 0x00])
+  assert_eq(core.unsubscribe("a/#/b").length(), 0)
+  assert_eq(core.unsubscribe("").length(), 0)
+  // 合法调用仍然能发出
+  assert_true(core.unsubscribe("a/b").length() > 0)
+}

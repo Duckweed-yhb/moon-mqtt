@@ -313,15 +313,38 @@ pub fn SessionStore::restore(
   items : Array[InflightWire],
 ) -> Result[SessionStore, String] {
   let entries : Array[InFlightEntry] = []
+  let seen : Array[Int32] = []
   let mut i = 0
   for it in items {
     match @protocol.decode_publish(it.wire) {
-      Ok(pkt) =>
+      Ok(pkt) => {
+        // 在途表里只有 QoS1/2；QoS0 没有握手，出现在快照里说明数据被写坏了。
+        match pkt.qos {
+          @protocol.QoS::AtMostOnce =>
+            return Err(
+              "restore item " +
+              i.to_string() +
+              ": QoS0 publish cannot be in flight",
+            )
+          _ => ()
+        }
+        // 同一个 packet_id 出现两次：后续 PUBACK/PUBCOMP 会一次清掉两条，
+        // 重放也会用同一个 id 发两份不同内容——按坏数据拒绝。
+        if pid_seen(seen, pkt.packet_id) {
+          return Err(
+            "restore item " +
+            i.to_string() +
+            ": duplicate packet id " +
+            pkt.packet_id.to_string(),
+          )
+        }
+        seen.push(pkt.packet_id)
         match SendStage::from_int(it.stage) {
           Ok(stage) =>
             entries.push({ packet_id: pkt.packet_id, publish: pkt, stage, })
           Err(e) => return Err("restore item " + i.to_string() + ": " + e)
         }
+      }
       Err(e) =>
         return Err(
           "restore item " + i.to_string() + ": bad publish bytes: " + e,
@@ -563,5 +586,49 @@ test "stage to_int from_int roundtrip" {
   match SendStage::from_int(7) {
     Ok(_) => fail("expected Err")
     Err(_) => ()
+  }
+}
+
+///|
+/// 在途表里是否已有该 packet_id（restore 校验用）。
+fn pid_seen(seen : Array[Int32], pid : Int32) -> Bool {
+  for p in seen {
+    if p == pid {
+      return true
+    }
+  }
+  return false
+}
+
+///|
+test "restore rejects duplicate packet ids" {
+  let wire = match record_outbound(SessionStore::new(), mk_publish(1)) {
+    (s, _) => {
+      let (_, items) = s.snapshot()
+      items[0].wire
+    }
+  }
+  let dup = [InflightWire::new(0, wire), InflightWire::new(0, wire)]
+  match SessionStore::restore(1, dup) {
+    Ok(_) => fail("duplicate packet id should be rejected")
+    Err(e) => assert_true(e.contains("duplicate packet id"))
+  }
+}
+
+///|
+test "restore rejects a QoS0 publish in flight" {
+  // 手工造一条 QoS0 PUBLISH 的字节：它不是合法在途条目。
+  let pkt = @protocol.PublishPacket::new(
+    "a/b",
+    [0x01],
+    @protocol.qos_from_int(0).unwrap_or(@protocol.qos0()),
+    false,
+    false,
+    0,
+  )
+  let wire = @protocol.encode_publish(pkt)
+  match SessionStore::restore(1, [InflightWire::new(0, wire)]) {
+    Ok(_) => fail("QoS0 in flight should be rejected")
+    Err(e) => assert_true(e.contains("QoS0"))
   }
 }

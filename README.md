@@ -15,14 +15,14 @@ MoonBit 写的 MQTT 3.1.1 客户端。浏览器里走 WebSocket，native 上走 
 需要 [MoonBit 工具链](https://www.moonbitlang.com/)（moon ≥ 0.1.20261012）。浏览器项目用 js 后端，native 用默认后端。
 
 ```bash
-moon add Duckweed/moon-mqtt@0.3.12
+moon add Duckweed/moon-mqtt@0.3.13
 ```
 
 也可以直接写进 `moon.mod`：
 
 ```toml
 import {
-  "Duckweed/moon-mqtt@0.3.12",
+  "Duckweed/moon-mqtt@0.3.13",
 }
 ```
 
@@ -255,17 +255,17 @@ sequenceDiagram
 - [x] 浏览器 MQTT 保活：`browser_tick` 由 JS 每秒驱动，每 `keep_alive/2` 秒发 PINGREQ，连续 3 次无 PINGRESP 主动断开重连
 - [x] 事件 → 动作的决策表：`core/plan_event` 把「该不该关连接、该回调谁」做成纯函数，`browser/` 与 `async/` 共用同一张表
 - [x] 主题校验（§4.7）：publish 的 topic name 拒绝空串 / 通配符 / U+0000；subscribe 的过滤器拒绝 `a/#/b`、`a/x+` 这类越界写法；解码侧同样拒绝 broker 发来的非法 topic
-- [x] `moon test --target wasm-gc` 139/139；`moon test --target native` 178/178（js 后端本机缺 node，交给 CI 跑）
+- [x] `moon test --target wasm-gc` 141/141；`moon test --target native` 180/180（js 后端本机缺 node，交给 CI 跑）
 - [x] `moon check --target js --deny-warn` 通过，0 警告
-- [x] 发布到 mooncakes（0.3.12）
+- [x] 发布到 mooncakes（0.3.13）
 
 ## 构建与测试
 
 ```bash
 moon check
 moon check --target js --deny-warn   # 0 警告
-moon test --target wasm-gc           # 139/139
-moon test --target native            # 178/178
+moon test --target wasm-gc           # 141/141
+moon test --target native            # 180/180
 moon run examples/pubsub
 moon run examples/resume
 pwsh scripts/build-demo.ps1          # 浏览器 demo

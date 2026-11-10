@@ -7,11 +7,16 @@
 ### Fixed
 
 - `async/AsyncClient::on_transport_close` 清空尚未交给 socket 的待发字节队列：此前断线时未落网的出站字节会被保留，重连后可能夹带到新连接，并与会话重连 `session_present=1` 时由 `replay_bytes()` 产出的 DUP 在途帧重复出站。SessionStore 保留，权威重发仍由 `replay_bytes()` 负责；已收到的入站事件队列不受影响。补 2 条 `async/` 回归用例（Connected 出站 QoS1 排队；断线清空待发队列、重连只发新 CONNECT）。
+- `client/` 重连保留入站 QoS2 去重表：`session_present=1` 时沿用旧客户端的 `inbound_qos2`，broker 重发「已派发、PUBREL 未完成」的 PUBLISH 不再被重复派发；`session_present=0` 时清空。
+- `client/` 会话丢失自动重订阅：`SubscriptionReg` 记录订阅 QoS，`session_present=0` 时重连会重发 SUBSCRIBE，调用方不再需要手动重订。
+- `protocol/` UTF-8 解码严格化：拒绝非法续字节、过长编码（overlong）、代理区码点与超出 U+10FFFF 的值；此前只检查截断。
+- `protocol/` packet-id 应答帧校验：Remaining Length 必须为 2、总长必须为 4、packet identifier 不得为 0，多余字节按坏帧拒绝。
+- `core/Framer` 畸形头处理：保留报文类型、剩余长度超 4 字节或缓冲超过协议最大帧时清空缓冲并返回 `Err`，`ClientCore::feed` 转为 `FramerError` 事件；此前这类帧会永久卡在缓冲里，后续帧出不来。
 
 ### Changed
 
 - 测试数 105/131 → 105/135；`client/` 补 2 条 QoS2 握手插帧回归用例（等 PUBREC 期间消化入站 QoS1 PUBLISH 并回 PUBACK；等 PUBCOMP 期间消化入站 PUBREL 并回 PUBCOMP），`client_wbtest.mbt` 共 27 条。未改动公开 API 与生产逻辑。
-- 测试数 105/135 → 107/137；`async/` 补 2 条回归用例并收敛 `on_transport_close` 待发队列语义；公开 API 签名不变。
+- 测试数 105/135 → 111/142；`async/` 补 2 条回归用例并收敛 `on_transport_close` 待发队列语义；`client/` 补重订阅 QoS 用例，`protocol/` 补严格 UTF-8 与 packet-id 校验用例，`core/` 补 Framer 畸形帧用例；公开 API 签名不变。
 
 ## [0.3.4] - 2026-11-07
 

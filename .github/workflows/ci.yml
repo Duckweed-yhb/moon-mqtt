@@ -26,6 +26,9 @@ jobs:
       # 四个后端逐一测试，证明「可移植的库」是构建期可验证的事实。
       # 注意：三步刻意分开写；合并成多行 run 块在 windows-latest
       # 会走 PowerShell，行分隔语义不同，会直接跑挂。
+      - name: Format check
+        run: moon fmt --check
+
       - name: Check
         run: moon check
 

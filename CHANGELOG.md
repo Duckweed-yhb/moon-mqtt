@@ -4,6 +4,10 @@
 
 ## [Unreleased]
 
+### Added
+
+- `protocol/roundtrip_test.mbt`：PUBLISH 编解码的随机往返测试。固定种子 LCG 生成 200 组 topic / payload / QoS / retain / dup 组合，逐字段比对 decode(encode(x)) == x；另测中文 topic 的字节长度前缀、以及 QoS0+DUP 必须被拒。失败可复现（种子写死）。
+
 ## [0.3.13] - 2026-11-11
 
 ### Fixed

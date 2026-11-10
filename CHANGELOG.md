@@ -6,6 +6,10 @@
 
 ### Added
 
+- `protocol/match_test.mbt`：`topic_matches` 的性质测试。固定种子生成 200 组「层级 + 通配符」过滤器，断言四条与取值无关的性质：合法过滤器必匹配其展开出的字面主题、非法过滤器永不匹配、`#` 匹配任意深度但不匹配 `$` 主题、精确过滤器只匹配自己（含空层 `a/` 与 `a` 的区别）。
+
+### Added
+
 - `client/connect_with_conn` + `pub(open) trait Conn`：允许调用方自带传输层（QUIC / 串口 / 进程内回环 / 测试夹具）。生产路径仍是 `connect_opts` 的真实 TCP，握手语义完全一致。trait 以前是只读的，外部包无法实现，`pub(open)` 把这条接缝打开。
 - `examples/scripted-broker`：进程内脚本化 broker，按 MQTT 3.1.1 应答，端到端跑完 CONNECT/CONNACK → SUBSCRIBE/SUBACK → PUBLISH QoS1/PUBACK → PUBLISH QoS2/PUBREC-PUBREL-PUBCOMP → PINGREQ/PINGRESP → UNSUBSCRIBE/UNSUBACK → DISCONNECT。不需要 broker 进程与网络，CI 会跑它。
 

@@ -17,39 +17,47 @@
 /// 每帧返回的 Array[Int] 都包含完整固定头（第一字节 + 剩余长度变长编码），
 /// 可以直接喂给 `@protocol.decode_packet`。
 
+///|
 /// 协议允许的最大帧：固定头最多 5 字节 + 剩余长度上限 268435455。
 let max_frame_bytes = 268435460
 
+///|
 pub struct Framer {
-  buf : Array[Int]
+  buf : Array[Int32]
 }
 
+///|
 pub fn Framer::new() -> Framer {
-  return { buf: [] }
+  return { buf: [], }
 }
 
+///|
 /// 当前残留字节数（调试用）。
-pub fn Framer::len(self : Framer) -> Int {
+pub fn Framer::len(self : Framer) -> Int32 {
   return self.buf.length()
 }
 
+///|
 /// 清空残留缓冲（断线重连时调用：旧连接的半包字节不能带到新连接）。
 pub fn Framer::reset(self : Framer) -> Unit {
   self.buf.clear()
 }
 
+///|
 /// 区分「半包」与「畸形头」：`decode_fixed_header` 的两类半包错误。
 fn is_partial(err : String) -> Bool {
   err == "empty fixed header" || err == "remaining length truncated"
 }
 
+///|
 /// 把新字节追加到缓冲，循环尝试切出完整帧，返回完整帧列表。
 ///
 /// 返回 `Err` 表示帧组装进入不可恢复状态（畸形固定头或缓冲超限），
 /// 此时缓冲已清空，调用方应断开连接而不是继续读。
 pub fn Framer::feed(
-  self : Framer, bytes : Array[Int]
-) -> Result[Array[Array[Int]], String] {
+  self : Framer,
+  bytes : Array[Int32],
+) -> Result[Array[Array[Int32]], String] {
   // 追加新字节（Array 是引用语义，push 直接作用于底层数组）
   for b in bytes {
     self.buf.push(b)
@@ -58,11 +66,11 @@ pub fn Framer::feed(
     self.buf.clear()
     return Err("framer buffer overflow")
   }
-  let frames : Array[Array[Int]] = []
+  let frames : Array[Array[Int32]] = []
   let mut partial = false
   while !partial && self.buf.length() > 0 {
     match @protocol.decode_fixed_header(self.buf, 0) {
-      Err(e) => {
+      Err(e) =>
         if is_partial(e) {
           // 半包，等下一批字节。
           partial = true
@@ -71,7 +79,6 @@ pub fn Framer::feed(
           self.buf.clear()
           return Err("framer fatal: " + e)
         }
-      }
       Ok((_t, _flags, rlen, header_end)) => {
         let total = header_end + rlen
         if self.buf.length() < total {
@@ -79,13 +86,13 @@ pub fn Framer::feed(
           partial = true
         } else {
           // 切出完整帧
-          let frame : Array[Int] = []
+          let frame : Array[Int32] = []
           for i in 0..<total {
             frame.push(self.buf[i])
           }
           frames.push(frame)
           // 把剩余字节左移回缓冲
-          let remaining : Array[Int] = []
+          let remaining : Array[Int32] = []
           for i in total..<self.buf.length() {
             remaining.push(self.buf[i])
           }

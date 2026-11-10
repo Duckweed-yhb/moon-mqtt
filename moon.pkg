@@ -2,4 +2,5 @@
 // 声明全后端，让 `moon check --target wasm` 不带警告通过。
 supported_targets = "wasm+wasm-gc+js+native"
 
-import {}
+import {
+}

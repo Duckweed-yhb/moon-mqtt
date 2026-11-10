@@ -8,7 +8,7 @@
 supported_targets = "native"
 
 import {
-  "Duckweed/moon-mqtt/protocol" @protocol,
-  "Duckweed/moon-mqtt/session" @session,
-  "Duckweed/moon-mqtt/transport" @transport,
+  "Duckweed/moon-mqtt/protocol",
+  "Duckweed/moon-mqtt/session",
+  "Duckweed/moon-mqtt/transport",
 }

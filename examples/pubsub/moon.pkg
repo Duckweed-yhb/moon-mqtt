@@ -9,6 +9,6 @@ supported_targets = "wasm+wasm-gc+js+native"
 pkgtype(kind: "executable")
 
 import {
-  "Duckweed/moon-mqtt/protocol" @protocol,
+  "Duckweed/moon-mqtt/protocol",
   "moonbitlang/core/debug",
 }

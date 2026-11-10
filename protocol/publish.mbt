@@ -1,35 +1,65 @@
 /// PUBLISH 报文（3.1.1 §3.3）编解码，以及 QoS 1/2 握手控制包：
 /// PUBACK(0x40)/PUBREC(0x50)/PUBREL(0x62)/PUBCOMP(0x70)。
 
+///|
 /// PUBLISH 报文参数。packet_id 仅 QoS 1/2 需要。
 pub struct PublishPacket {
   topic : String
-  payload : Array[Int]
+  payload : Array[Int32]
   qos : QoS
   retain : Bool
   dup : Bool
-  packet_id : Int
+  packet_id : Int32
 }
 
+///|
 /// 构造 PUBLISH 参数（供消费者在库外创建报文）。
 pub fn PublishPacket::new(
-  topic : String, payload : Array[Int], qos : QoS, retain : Bool, dup : Bool, packet_id : Int
+  topic : String,
+  payload : Array[Int32],
+  qos : QoS,
+  retain : Bool,
+  dup : Bool,
+  packet_id : Int32,
 ) -> PublishPacket {
-  return { topic, payload, qos, retain, dup, packet_id }
+  return { topic, payload, qos, retain, dup, packet_id, }
 }
 
+///|
 /// 返回一个仅改写报文标识的副本（发送侧分配 packet_id 后回填用）。
-pub fn PublishPacket::with_packet_id(pkt : PublishPacket, packet_id : Int) -> PublishPacket {
-  return { topic: pkt.topic, payload: pkt.payload, qos: pkt.qos, retain: pkt.retain, dup: pkt.dup, packet_id }
+pub fn PublishPacket::with_packet_id(
+  pkt : PublishPacket,
+  packet_id : Int32,
+) -> PublishPacket {
+  return {
+    topic: pkt.topic,
+    payload: pkt.payload,
+    qos: pkt.qos,
+    retain: pkt.retain,
+    dup: pkt.dup,
+    packet_id,
+  }
 }
 
+///|
 /// 返回一个仅改写 DUP 标记的副本（断线重连重放时置 DUP=1）。
-pub fn PublishPacket::with_dup(pkt : PublishPacket, dup : Bool) -> PublishPacket {
-  return { topic: pkt.topic, payload: pkt.payload, qos: pkt.qos, retain: pkt.retain, dup, packet_id: pkt.packet_id }
+pub fn PublishPacket::with_dup(
+  pkt : PublishPacket,
+  dup : Bool,
+) -> PublishPacket {
+  return {
+    topic: pkt.topic,
+    payload: pkt.payload,
+    qos: pkt.qos,
+    retain: pkt.retain,
+    dup,
+    packet_id: pkt.packet_id,
+  }
 }
 
+///|
 /// 编码 PUBLISH 为完整报文（含固定头）。
-pub fn encode_publish(pkt : PublishPacket) -> Array[Int] {
+pub fn encode_publish(pkt : PublishPacket) -> Array[Int32] {
   let body = ByteWriter::new()
   body.push_string(pkt.topic)
   if pkt.qos != QoS::AtMostOnce {
@@ -55,13 +85,14 @@ pub fn encode_publish(pkt : PublishPacket) -> Array[Int] {
   return out.bytes()
 }
 
+///|
 /// 解码 PUBLISH。data 为完整报文（含固定头）。
-pub fn decode_publish(data : Array[Int]) -> Result[PublishPacket, String] {
+pub fn decode_publish(data : Array[Int32]) -> Result[PublishPacket, String] {
   if data.length() < 2 {
     return Err("publish too short")
   }
   let first = data[0]
-  if (first >> 4) != 3 {
+  if first >> 4 != 3 {
     return Err("not a publish")
   }
   let flags = first & 0x0F
@@ -98,20 +129,18 @@ pub fn decode_publish(data : Array[Int]) -> Result[PublishPacket, String] {
                   }
                 }
               }
-              let payload : Array[Int] = []
+              let payload : Array[Int32] = []
               for i in pos..<end {
                 payload.push(data[i])
               }
-              Ok(
-                {
-                  topic,
-                  payload,
-                  qos: q,
-                  retain: (flags & 0x01) != 0,
-                  dup: (flags & 0x08) != 0,
-                  packet_id: pid,
-                },
-              )
+              Ok({
+                topic,
+                payload,
+                qos: q,
+                retain: (flags & 0x01) != 0,
+                dup: (flags & 0x08) != 0,
+                packet_id: pid,
+              })
             }
           }
         }
@@ -120,8 +149,9 @@ pub fn decode_publish(data : Array[Int]) -> Result[PublishPacket, String] {
   }
 }
 
+///|
 /// 编码仅含 packet_id 的 QoS 控制包（PUBACK/PUBREC/PUBREL/PUBCOMP）。
-pub fn encode_packet_id(type_byte : Int, packet_id : Int) -> Array[Int] {
+pub fn encode_packet_id(type_byte : Int32, packet_id : Int32) -> Array[Int32] {
   let out = ByteWriter::new()
   out.push_byte(type_byte)
   out.push_remaining_length(2)
@@ -129,27 +159,35 @@ pub fn encode_packet_id(type_byte : Int, packet_id : Int) -> Array[Int] {
   return out.bytes()
 }
 
-pub fn encode_puback(packet_id : Int) -> Array[Int] {
+///|
+pub fn encode_puback(packet_id : Int32) -> Array[Int32] {
   return encode_packet_id(0x40, packet_id)
 }
 
-pub fn encode_pubrec(packet_id : Int) -> Array[Int] {
+///|
+pub fn encode_pubrec(packet_id : Int32) -> Array[Int32] {
   return encode_packet_id(0x50, packet_id)
 }
 
-pub fn encode_pubrel(packet_id : Int) -> Array[Int] {
+///|
+pub fn encode_pubrel(packet_id : Int32) -> Array[Int32] {
   return encode_packet_id(0x62, packet_id)
 }
 
-pub fn encode_pubcomp(packet_id : Int) -> Array[Int] {
+///|
+pub fn encode_pubcomp(packet_id : Int32) -> Array[Int32] {
   return encode_packet_id(0x70, packet_id)
 }
 
+///|
 /// 解码 QoS 控制包，取出 packet_id。
 ///
 /// 固定头必须是 `type_byte + Remaining Length(2) + 2 字节 id`，总长 4；
 /// MQTT §2.3.1 规定 packet identifier 必须非零，零值或多余字节按坏帧拒绝。
-pub fn decode_packet_id(data : Array[Int], type_byte : Int) -> Result[Int, String] {
+pub fn decode_packet_id(
+  data : Array[Int32],
+  type_byte : Int32,
+) -> Result[Int32, String] {
   if data.length() < 4 {
     return Err("packet id packet too short")
   }
@@ -174,22 +212,29 @@ pub fn decode_packet_id(data : Array[Int], type_byte : Int) -> Result[Int, Strin
   }
 }
 
+///|
 test "decode_packet_id rejects malformed and zero id" {
   // Remaining Length 不是 2
-  assert_true(match decode_packet_id([0x40, 0x03, 0x00, 0x01, 0x00], 0x40) {
-    Err(_) => true
-    Ok(_) => false
-  })
+  assert_true(
+    match decode_packet_id([0x40, 0x03, 0x00, 0x01, 0x00], 0x40) {
+      Err(_) => true
+      Ok(_) => false
+    },
+  )
   // packet_id = 0
-  assert_true(match decode_packet_id([0x40, 0x02, 0x00, 0x00], 0x40) {
-    Err(_) => true
-    Ok(_) => false
-  })
+  assert_true(
+    match decode_packet_id([0x40, 0x02, 0x00, 0x00], 0x40) {
+      Err(_) => true
+      Ok(_) => false
+    },
+  )
   // 多余字节
-  assert_true(match decode_packet_id([0x40, 0x02, 0x00, 0x07, 0x00], 0x40) {
-    Err(_) => true
-    Ok(_) => false
-  })
+  assert_true(
+    match decode_packet_id([0x40, 0x02, 0x00, 0x07, 0x00], 0x40) {
+      Err(_) => true
+      Ok(_) => false
+    },
+  )
   // 正常
   match decode_packet_id([0x40, 0x02, 0x00, 0x07], 0x40) {
     Ok(id) => assert_eq(id, 7)
@@ -197,8 +242,16 @@ test "decode_packet_id rejects malformed and zero id" {
   }
 }
 
+///|
 test "encode_publish qos0" {
-  let pkt = { topic: "a/b", payload: [0x01, 0x02, 0x03], qos: QoS::AtMostOnce, retain: false, dup: false, packet_id: 0 }
+  let pkt = {
+    topic: "a/b",
+    payload: [0x01, 0x02, 0x03],
+    qos: QoS::AtMostOnce,
+    retain: false,
+    dup: false,
+    packet_id: 0,
+  }
   let bytes = encode_publish(pkt)
   // body: topic "a/b"(00 02 61 2F 62)=5 + payload 01 02 03=3 → rlen=8
   assert_eq(bytes[0], 0x30)
@@ -213,8 +266,16 @@ test "encode_publish qos0" {
   assert_eq(bytes[9], 0x03)
 }
 
+///|
 test "encode_publish qos1 with packet id" {
-  let pkt = { topic: "t", payload: [0x00], qos: QoS::AtLeastOnce, retain: false, dup: false, packet_id: 7 }
+  let pkt = {
+    topic: "t",
+    payload: [0x00],
+    qos: QoS::AtLeastOnce,
+    retain: false,
+    dup: false,
+    packet_id: 7,
+  }
   let bytes = encode_publish(pkt)
   // 0x32 (qos1 flag=0x02)
   assert_eq(bytes[0], 0x32)
@@ -228,8 +289,16 @@ test "encode_publish qos1 with packet id" {
   assert_eq(bytes[7], 0x00) // payload
 }
 
+///|
 test "publish roundtrip" {
-  let pkt = { topic: "dev/1/status", payload: [0xAB, 0xCD], qos: QoS::ExactlyOnce, retain: true, dup: false, packet_id: 42 }
+  let pkt = {
+    topic: "dev/1/status",
+    payload: [0xAB, 0xCD],
+    qos: QoS::ExactlyOnce,
+    retain: true,
+    dup: false,
+    packet_id: 42,
+  }
   let bytes = encode_publish(pkt)
   match decode_publish(bytes) {
     Ok(d) => {
@@ -244,13 +313,17 @@ test "publish roundtrip" {
   }
 }
 
+///|
 test "decode_publish bad type" {
-  assert_true(match decode_publish([0x20, 0x02, 0x00, 0x00]) {
-    Err(_) => true
-    Ok(_) => false
-  })
+  assert_true(
+    match decode_publish([0x20, 0x02, 0x00, 0x00]) {
+      Err(_) => true
+      Ok(_) => false
+    },
+  )
 }
 
+///|
 test "qos control packets" {
   // QoS1: PUBLISH → PUBACK
   assert_eq(encode_puback(5), [0x40, 0x02, 0x00, 0x05])
@@ -262,30 +335,39 @@ test "qos control packets" {
     Ok(id) => assert_eq(id, 5)
     Err(e) => fail(e)
   }
-  assert_true(match decode_packet_id(encode_pubrec(5), 0x62) {
-    Err(_) => true
-    Ok(_) => false
-  })
+  assert_true(
+    match decode_packet_id(encode_pubrec(5), 0x62) {
+      Err(_) => true
+      Ok(_) => false
+    },
+  )
 }
 
+///|
 test "decode_publish rejects qos0 dup flag" {
   // 0x38：QoS0 但 DUP 位置 1，规范不允许重传标记出现在 QoS0 报文上。
   let data = [0x38, 0x03, 0x00, 0x01, 0x61]
-  assert_true(match decode_publish(data) {
-    Err(_) => true
-    Ok(_) => false
-  })
+  assert_true(
+    match decode_publish(data) {
+      Err(_) => true
+      Ok(_) => false
+    },
+  )
 }
 
+///|
 test "decode_publish rejects qos1 zero packet id" {
   // QoS1 报文的 packet_id 为 0，不是合法标识符。
   let data = [0x32, 0x05, 0x00, 0x01, 0x61, 0x00, 0x00]
-  assert_true(match decode_publish(data) {
-    Err(_) => true
-    Ok(_) => false
-  })
+  assert_true(
+    match decode_publish(data) {
+      Err(_) => true
+      Ok(_) => false
+    },
+  )
 }
 
+///|
 test "decode_publish allows qos1 dup with nonzero packet id" {
   // QoS 大于 0 时 DUP=1 是合法重传，守卫只拒绝 QoS0 的 DUP。
   let data = [0x3A, 0x05, 0x00, 0x01, 0x61, 0x00, 0x07]

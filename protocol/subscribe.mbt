@@ -1,30 +1,36 @@
 /// SUBSCRIBE（3.1.1 §3.8）/ SUBACK（§3.9）/ UNSUBSCRIBE（§3.10）/ UNSUBACK（§3.11）。
 
+///|
 /// 一条订阅：主题过滤器 + 请求的 QoS。
 pub struct Subscription {
   topic : String
   qos : QoS
 }
 
+///|
 /// 构造一条订阅（供消费者在库外创建）。
 pub fn Subscription::new(topic : String, qos : QoS) -> Subscription {
-  return { topic, qos }
+  return { topic, qos, }
 }
 
+///|
 pub struct SubscribePacket {
-  packet_id : Int
+  packet_id : Int32
   subscriptions : Array[Subscription]
 }
 
+///|
 /// 构造 SUBSCRIBE 参数（供消费者在库外创建）。
 pub fn SubscribePacket::new(
-  packet_id : Int, subscriptions : Array[Subscription]
+  packet_id : Int32,
+  subscriptions : Array[Subscription],
 ) -> SubscribePacket {
-  return { packet_id, subscriptions }
+  return { packet_id, subscriptions, }
 }
 
+///|
 /// 编码 SUBSCRIBE 为完整报文（含固定头 0x82）。
-pub fn encode_subscribe(pkt : SubscribePacket) -> Array[Int] {
+pub fn encode_subscribe(pkt : SubscribePacket) -> Array[Int32] {
   let body = ByteWriter::new()
   body.push_u16(pkt.packet_id)
   for sub in pkt.subscriptions {
@@ -40,6 +46,7 @@ pub fn encode_subscribe(pkt : SubscribePacket) -> Array[Int] {
   return out.bytes()
 }
 
+///|
 /// SUBACK 每个订阅返回码（§3.9.3）。
 pub enum SubAckCode {
   Success0
@@ -48,10 +55,14 @@ pub enum SubAckCode {
   Failure
 } derive(Eq, Debug)
 
+///|
 pub extend SubAckCode with Eq::{not_equal, equal}
+
+///|
 pub extend SubAckCode with @moonbitlang/core/debug.Debug::{to_repr}
 
-pub fn suback_code_from_int(v : Int) -> Option[SubAckCode] {
+///|
+pub fn suback_code_from_int(v : Int32) -> SubAckCode? {
   match v {
     0 => Some(SubAckCode::Success0)
     1 => Some(SubAckCode::Success1)
@@ -61,11 +72,13 @@ pub fn suback_code_from_int(v : Int) -> Option[SubAckCode] {
   }
 }
 
+///|
 pub struct Suback {
-  packet_id : Int
+  packet_id : Int32
   codes : Array[SubAckCode]
 }
 
+///|
 /// 所有订阅项都被 broker 接受（没有 0x80 Failure）。
 pub fn Suback::all_accepted(self : Suback) -> Bool {
   for c in self.codes {
@@ -77,8 +90,9 @@ pub fn Suback::all_accepted(self : Suback) -> Bool {
   return true
 }
 
+///|
 /// 解码 SUBACK。data 为完整报文。
-pub fn decode_suback(data : Array[Int]) -> Result[Suback, String] {
+pub fn decode_suback(data : Array[Int32]) -> Result[Suback, String] {
   if data.length() < 4 {
     return Err("suback too short")
   }
@@ -98,23 +112,29 @@ pub fn decode_suback(data : Array[Int]) -> Result[Suback, String] {
         }
         pos = pos + 1
       }
-      Ok({ packet_id: pid, codes })
+      Ok({ packet_id: pid, codes, })
     }
   }
 }
 
+///|
 pub struct UnsubscribePacket {
-  packet_id : Int
+  packet_id : Int32
   topics : Array[String]
 }
 
+///|
 /// 构造 UNSUBSCRIBE 参数（供消费者在库外创建）。
-pub fn UnsubscribePacket::new(packet_id : Int, topics : Array[String]) -> UnsubscribePacket {
-  return { packet_id, topics }
+pub fn UnsubscribePacket::new(
+  packet_id : Int32,
+  topics : Array[String],
+) -> UnsubscribePacket {
+  return { packet_id, topics, }
 }
 
+///|
 /// 编码 UNSUBSCRIBE 为完整报文（含固定头 0xA2）。
-pub fn encode_unsubscribe(pkt : UnsubscribePacket) -> Array[Int] {
+pub fn encode_unsubscribe(pkt : UnsubscribePacket) -> Array[Int32] {
   let body = ByteWriter::new()
   body.push_u16(pkt.packet_id)
   for t in pkt.topics {
@@ -129,8 +149,9 @@ pub fn encode_unsubscribe(pkt : UnsubscribePacket) -> Array[Int] {
   return out.bytes()
 }
 
+///|
 /// 解码 UNSUBACK，返回 packet_id。data 为完整报文。
-pub fn decode_unsuback(data : Array[Int]) -> Result[Int, String] {
+pub fn decode_unsuback(data : Array[Int32]) -> Result[Int32, String] {
   if data.length() < 4 {
     return Err("unsuback too short")
   }
@@ -144,8 +165,12 @@ pub fn decode_unsuback(data : Array[Int]) -> Result[Int, String] {
   }
 }
 
+///|
 test "encode_subscribe" {
-  let pkt = { packet_id: 1, subscriptions: [{ topic: "a/#", qos: QoS::AtLeastOnce }] }
+  let pkt = {
+    packet_id: 1,
+    subscriptions: [{ topic: "a/#", qos: QoS::AtLeastOnce, }],
+  }
   let bytes = encode_subscribe(pkt)
   // 0x82, rlen=2(pid) + 2(len)+3(topic a/#) + 1(qos) = 8
   assert_eq(bytes[0], 0x82)
@@ -160,6 +185,7 @@ test "encode_subscribe" {
   assert_eq(bytes[9], 0x01) // qos
 }
 
+///|
 test "decode_suback" {
   match decode_suback([0x90, 0x04, 0x00, 0x07, 0x01, 0x80]) {
     Ok(s) => {
@@ -168,14 +194,17 @@ test "decode_suback" {
     }
     Err(e) => fail(e)
   }
-  assert_true(match decode_suback([0x20, 0x02, 0x00, 0x00]) {
-    Err(_) => true
-    Ok(_) => false
-  })
+  assert_true(
+    match decode_suback([0x20, 0x02, 0x00, 0x00]) {
+      Err(_) => true
+      Ok(_) => false
+    },
+  )
 }
 
+///|
 test "unsubscribe roundtrip" {
-  let pkt = { packet_id: 3, topics: ["a/b", "c"] }
+  let pkt = { packet_id: 3, topics: ["a/b", "c"], }
   let bytes = encode_unsubscribe(pkt)
   match decode_unsuback([0xB0, 0x02, 0x00, 0x03]) {
     Ok(pid) => assert_eq(pid, 3)

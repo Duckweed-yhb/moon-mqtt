@@ -1,18 +1,20 @@
 /// CONNECT 报文（3.1.1 §3.1）编码与 CONNACK 应答（§3.2）解码。
 
+///|
 /// 客户端发起连接参数。
 pub struct ConnectPacket {
   client_id : String
-  keep_alive : Int
+  keep_alive : Int32
   clean_session : Bool
   username : String?
-  password : Array[Int]?
+  password : Array[Int32]?
   will_topic : String?
-  will_message : Array[Int]?
+  will_message : Array[Int32]?
   will_qos : QoS
   will_retain : Bool
 }
 
+///|
 /// 最小 CONNECT 参数：默认 keep_alive=60、clean_session=true、无认证无遗嘱。
 pub fn ConnectPacket::new(client_id : String) -> ConnectPacket {
   return {
@@ -24,37 +26,45 @@ pub fn ConnectPacket::new(client_id : String) -> ConnectPacket {
     will_topic: None,
     will_message: None,
     will_qos: QoS::AtMostOnce,
-    will_retain: false
+    will_retain: false,
   }
 }
 
+///|
 /// 设置 keep_alive（秒，0 = 不发 PINGREQ）。
 pub fn ConnectPacket::with_keep_alive(
-  self : ConnectPacket, secs : Int
+  self : ConnectPacket,
+  secs : Int32,
 ) -> ConnectPacket {
-  { ..self, keep_alive: secs }
+  { ..self, keep_alive: secs, }
 }
 
+///|
 /// 设置 clean_session。false = 让 broker 保留同名 client_id 的会话。
 pub fn ConnectPacket::with_clean_session(
-  self : ConnectPacket, v : Bool
+  self : ConnectPacket,
+  v : Bool,
 ) -> ConnectPacket {
-  { ..self, clean_session: v }
+  { ..self, clean_session: v, }
 }
 
+///|
 /// 设置用户名密码（两者必须同时给或同时 None）。
 pub fn ConnectPacket::with_auth(
-  self : ConnectPacket, user : String, pass : Array[Int]
+  self : ConnectPacket,
+  user : String,
+  pass : Array[Int32],
 ) -> ConnectPacket {
-  { ..self, username: Some(user), password: Some(pass) }
+  { ..self, username: Some(user), password: Some(pass), }
 }
 
+///|
 /// 设置遗嘱（Will）：连接异常掉线时 broker 会向 will_topic 发 will_message。
 /// qos / retain 同 PUBLISH 语义。
 pub fn ConnectPacket::with_will(
   self : ConnectPacket,
   topic : String,
-  msg : Array[Int],
+  msg : Array[Int32],
   qos : QoS,
   retain : Bool,
 ) -> ConnectPacket {
@@ -67,8 +77,9 @@ pub fn ConnectPacket::with_will(
   }
 }
 
+///|
 /// 把 CONNECT 编码为完整报文（含固定头）。
-pub fn encode_connect(pkt : ConnectPacket) -> Array[Int] {
+pub fn encode_connect(pkt : ConnectPacket) -> Array[Int32] {
   // 可变头：协议名 + 级别 + 连接标志 + 保持连接
   let vh = ByteWriter::new()
   vh.push_string("MQTT")
@@ -137,6 +148,7 @@ pub fn encode_connect(pkt : ConnectPacket) -> Array[Int] {
   return out.bytes()
 }
 
+///|
 /// CONNACK 返回码（3.1.1 §3.2.2.3）。
 pub enum ConnectReturnCode {
   ConnectionAccepted
@@ -147,11 +159,15 @@ pub enum ConnectReturnCode {
   NotAuthorized
 } derive(Eq, Debug)
 
+///|
 pub extend ConnectReturnCode with Eq::{not_equal, equal}
+
+///|
 pub extend ConnectReturnCode with @moonbitlang/core/debug.Debug::{to_repr}
 
+///|
 /// 返回码字节值到枚举；未知值返回 None。
-pub fn return_code_from_int(v : Int) -> Option[ConnectReturnCode] {
+pub fn return_code_from_int(v : Int32) -> ConnectReturnCode? {
   match v {
     0 => Some(ConnectReturnCode::ConnectionAccepted)
     1 => Some(ConnectReturnCode::UnacceptableProtocolVersion)
@@ -163,14 +179,16 @@ pub fn return_code_from_int(v : Int) -> Option[ConnectReturnCode] {
   }
 }
 
+///|
 /// 解码后的 CONNACK。
 pub struct Connack {
   session_present : Bool
   return_code : ConnectReturnCode
 }
 
+///|
 /// 解码 CONNACK。data 为完整报文（含固定头）。
-pub fn decode_connack(data : Array[Int]) -> Result[Connack, String] {
+pub fn decode_connack(data : Array[Int32]) -> Result[Connack, String] {
   if data.length() < 4 {
     return Err("connack too short")
   }
@@ -183,23 +201,22 @@ pub fn decode_connack(data : Array[Int]) -> Result[Connack, String] {
   let ack_flags = data[2]
   let session_present = (ack_flags & 0x01) == 1
   match return_code_from_int(data[3]) {
-    Some(rc) => Ok({ session_present, return_code: rc })
+    Some(rc) => Ok({ session_present, return_code: rc, })
     None => Err("unknown connack return code")
   }
 }
 
+///|
 test "encode_connect minimal" {
   let pkt = ConnectPacket::new("client-1")
   let bytes = encode_connect(pkt)
-  assert_eq(
-    bytes,
-    [
-      0x10, 0x14, 0x00, 0x04, 0x4D, 0x51, 0x54, 0x54, 0x04, 0x02, 0x00, 0x3C, 0x00,
-      0x08, 0x63, 0x6C, 0x69, 0x65, 0x6E, 0x74, 0x2D, 0x31,
-    ],
-  )
+  assert_eq(bytes, [
+    0x10, 0x14, 0x00, 0x04, 0x4D, 0x51, 0x54, 0x54, 0x04, 0x02, 0x00, 0x3C, 0x00,
+    0x08, 0x63, 0x6C, 0x69, 0x65, 0x6E, 0x74, 0x2D, 0x31,
+  ])
 }
 
+///|
 test "encode_connect with auth and will" {
   let pkt = {
     client_id: "c2",
@@ -210,7 +227,7 @@ test "encode_connect with auth and will" {
     will_topic: Some("w/t"),
     will_message: Some([0xAA]),
     will_qos: QoS::AtLeastOnce,
-    will_retain: true
+    will_retain: true,
   }
   let bytes = encode_connect(pkt)
   // 固定头 0x10 + 剩余长度 + 可变头 + 载荷
@@ -220,6 +237,7 @@ test "encode_connect with auth and will" {
   assert_eq(flags, 0x80 | 0x40 | 0x04 | 0x20 | 0x08)
 }
 
+///|
 test "decode_connack accepted" {
   match decode_connack([0x20, 0x02, 0x00, 0x00]) {
     Ok(c) => {
@@ -230,6 +248,7 @@ test "decode_connack accepted" {
   }
 }
 
+///|
 test "decode_connack session present" {
   match decode_connack([0x20, 0x02, 0x01, 0x00]) {
     Ok(c) => {
@@ -240,6 +259,7 @@ test "decode_connack session present" {
   }
 }
 
+///|
 test "decode_connack bad credentials" {
   match decode_connack([0x20, 0x02, 0x00, 0x04]) {
     Ok(c) => assert_eq(c.return_code, ConnectReturnCode::BadUsernameOrPassword)
@@ -247,9 +267,12 @@ test "decode_connack bad credentials" {
   }
 }
 
+///|
 test "decode_connack invalid" {
-  assert_true(match decode_connack([0x10, 0x02, 0x00, 0x00]) {
-    Err(_) => true
-    Ok(_) => false
-  })
+  assert_true(
+    match decode_connack([0x10, 0x02, 0x00, 0x00]) {
+      Err(_) => true
+      Ok(_) => false
+    },
+  )
 }

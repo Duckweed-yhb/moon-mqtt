@@ -1,3 +1,4 @@
+///|
 /// MQTT 3.1.1 控制报文类型，见规范 §2.2.1 表 2-1。
 ///
 /// 每个报文的第一字节高 4 位是类型，低 4 位是 flags。
@@ -18,8 +19,9 @@ pub enum PacketType {
   Disconnect // 14
 } derive(Eq, Debug)
 
+///|
 /// PacketType 到协议字节值。
-pub fn packet_type_value(t : PacketType) -> Int {
+pub fn packet_type_value(t : PacketType) -> Int32 {
   match t {
     PacketType::Connect => 1
     PacketType::Connack => 2
@@ -38,8 +40,9 @@ pub fn packet_type_value(t : PacketType) -> Int {
   }
 }
 
+///|
 /// 协议字节值（1..=14）到 PacketType；0/15 为保留，返回 None。
-pub fn packet_type_from_int(v : Int) -> Option[PacketType] {
+pub fn packet_type_from_int(v : Int32) -> PacketType? {
   if v == 1 {
     Some(PacketType::Connect)
   } else if v == 2 {
@@ -73,9 +76,10 @@ pub fn packet_type_from_int(v : Int) -> Option[PacketType] {
   }
 }
 
+///|
 /// 剩余长度变长编码（规范 §2.2.3）：每字节 7 位有效 + MSB 续传，最多 4 字节。
-pub fn encode_remaining_length(len : Int) -> Array[Int] {
-  let out : Array[Int] = []
+pub fn encode_remaining_length(len : Int32) -> Array[Int32] {
+  let out : Array[Int32] = []
   let mut value = len
   let mut count = 0
   while value > 0 && count < 4 {
@@ -91,9 +95,13 @@ pub fn encode_remaining_length(len : Int) -> Array[Int] {
   return out
 }
 
+///|
 /// 剩余长度变长解码，返回 (剩余长度, 下一字节位置)。
 /// 失败返回 Err：截断 / 超过 4 字节。
-pub fn decode_remaining_length(data : Array[Int], start : Int) -> Result[(Int, Int), String] {
+pub fn decode_remaining_length(
+  data : Array[Int32],
+  start : Int32,
+) -> Result[(Int32, Int32), String] {
   let mut multiplier = 1
   let mut value = 0
   let mut pos = start
@@ -117,10 +125,15 @@ pub fn decode_remaining_length(data : Array[Int], start : Int) -> Result[(Int, I
   return Ok((value, pos + 1))
 }
 
+///|
 /// 编码固定头（第一字节 + 剩余长度），见规范 §2.2。
-pub fn encode_fixed_header(t : PacketType, flags : Int, remaining_length : Int) -> Array[Int] {
+pub fn encode_fixed_header(
+  t : PacketType,
+  flags : Int32,
+  remaining_length : Int32,
+) -> Array[Int32] {
   let byte0 = (packet_type_value(t) << 4) | (flags & 0x0f)
-  let out : Array[Int] = []
+  let out : Array[Int32] = []
   out.push(byte0)
   let rl = encode_remaining_length(remaining_length)
   for b in rl {
@@ -129,10 +142,12 @@ pub fn encode_fixed_header(t : PacketType, flags : Int, remaining_length : Int) 
   return out
 }
 
+///|
 /// 解码固定头，返回 (PacketType, flags, 剩余长度, 下一字节位置)。
 pub fn decode_fixed_header(
-  data : Array[Int], start : Int
-) -> Result[(PacketType, Int, Int, Int), String] {
+  data : Array[Int32],
+  start : Int32,
+) -> Result[(PacketType, Int32, Int32, Int32), String] {
   if start >= data.length() {
     return Err("empty fixed header")
   }
@@ -150,9 +165,14 @@ pub fn decode_fixed_header(
 }
 
 // 显式声明 trait 方法提升，避免新版工具链弃用警告
+
+///|
 pub extend PacketType with Eq::{not_equal, equal}
+
+///|
 pub extend PacketType with @moonbitlang/core/debug.Debug::{to_repr}
 
+///|
 test "remaining_length encoding" {
   assert_eq(encode_remaining_length(0), [0])
   assert_eq(encode_remaining_length(127), [127])
@@ -162,6 +182,7 @@ test "remaining_length encoding" {
   assert_eq(encode_remaining_length(268435455), [0xFF, 0xFF, 0xFF, 0x7F])
 }
 
+///|
 test "remaining_length roundtrip" {
   for n in [0, 1, 127, 128, 255, 256, 16383, 16384, 2097151, 268435455] {
     let enc = encode_remaining_length(n)
@@ -172,18 +193,24 @@ test "remaining_length roundtrip" {
   }
 }
 
+///|
 test "remaining_length decode errors" {
-  assert_true(match decode_remaining_length([], 0) {
-    Err(_) => true
-    Ok(_) => false
-  })
+  assert_true(
+    match decode_remaining_length([], 0) {
+      Err(_) => true
+      Ok(_) => false
+    },
+  )
   // 5 个续传字节 → 超过 4 字节限制
-  assert_true(match decode_remaining_length([0x80, 0x80, 0x80, 0x80, 0x01], 0) {
-    Err(_) => true
-    Ok(_) => false
-  })
+  assert_true(
+    match decode_remaining_length([0x80, 0x80, 0x80, 0x80, 0x01], 0) {
+      Err(_) => true
+      Ok(_) => false
+    },
+  )
 }
 
+///|
 test "fixed header encode decode" {
   // CONNECT，flags=0，剩余长度 10
   let fh = encode_fixed_header(PacketType::Connect, 0, 10)
@@ -200,6 +227,7 @@ test "fixed header encode decode" {
   }
 }
 
+///|
 test "fixed header publish flags preserved" {
   // PUBLISH QoS1：0x3 类型，flags = (dup<<3)|(qos<<1)|retain = 0b0010
   let fh = encode_fixed_header(PacketType::Publish, 0b0010, 5)
@@ -214,13 +242,18 @@ test "fixed header publish flags preserved" {
   }
 }
 
+///|
 test "fixed header decode error" {
-  assert_true(match decode_fixed_header([0x00], 0) {
-    Err(_) => true
-    Ok(_) => false
-  })
-  assert_true(match decode_fixed_header([], 0) {
-    Err(_) => true
-    Ok(_) => false
-  })
+  assert_true(
+    match decode_fixed_header([0x00], 0) {
+      Err(_) => true
+      Ok(_) => false
+    },
+  )
+  assert_true(
+    match decode_fixed_header([], 0) {
+      Err(_) => true
+      Ok(_) => false
+    },
+  )
 }

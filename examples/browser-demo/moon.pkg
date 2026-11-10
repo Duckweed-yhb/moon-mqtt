@@ -3,8 +3,10 @@
 ///
 /// 用 @browser 高层 API 连接 EMQX broker，订阅主题、发布消息、接收回调。
 supported_targets = "js"
+
 pkgtype(kind: "executable")
+
 import {
-  "Duckweed/moon-mqtt/browser" @browser,
-  "Duckweed/moon-mqtt/protocol" @protocol,
+  "Duckweed/moon-mqtt/browser",
+  "Duckweed/moon-mqtt/protocol",
 }

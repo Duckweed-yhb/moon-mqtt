@@ -9,9 +9,11 @@
 /// onmessage 收到字节后用 @core.ClientCore.feed() 喂给纯计算状态机，
 /// 打印 CoreEvent。JS 胶水仍持有 WebSocket，MoonBit 侧只做纯计算。
 supported_targets = "js"
+
 pkgtype(kind: "executable")
+
 import {
-  "Duckweed/moon-mqtt/core" @core,
-  "Duckweed/moon-mqtt/protocol" @protocol,
-  "Duckweed/moon-mqtt/session" @session,
+  "Duckweed/moon-mqtt/core",
+  "Duckweed/moon-mqtt/protocol",
+  "Duckweed/moon-mqtt/session",
 }

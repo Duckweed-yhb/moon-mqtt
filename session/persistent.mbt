@@ -8,6 +8,7 @@
 /// 读盘由 client/transport 层在 native 后端完成。四后端可编译可测。
 /// 接收侧（入站 QoS2 未完成）的持久化留待后续。
 
+///|
 /// 在途出站报文的发送阶段。
 pub enum SendStage {
   WaitingPuback // QoS1：PUBLISH 已发，待 PUBACK
@@ -15,62 +16,78 @@ pub enum SendStage {
   WaitPubcomp // QoS2：PUBREL 已发，待 PUBCOMP
 } derive(Eq, Debug)
 
+///|
 pub extend SendStage with Eq::{not_equal, equal}
+
+///|
 pub extend SendStage with @moonbitlang/core/debug.Debug::{to_repr}
 
+///|
 /// 一条在途出站报文。`publish` 保留首次发送时的内容（含已分配的
 /// packet_id、dup=false），重放时据此重编码并置 DUP=1。
 pub struct InFlightEntry {
-  packet_id : Int
+  packet_id : Int32
   publish : @protocol.PublishPacket
   stage : SendStage
 }
 
+///|
 pub fn InFlightEntry::new(
-  packet_id : Int, publish : @protocol.PublishPacket, stage : SendStage,
+  packet_id : Int32,
+  publish : @protocol.PublishPacket,
+  stage : SendStage,
 ) -> InFlightEntry {
-  return { packet_id, publish, stage }
+  return { packet_id, publish, stage, }
 }
 
-pub fn InFlightEntry::packet_id(e : InFlightEntry) -> Int {
+///|
+pub fn InFlightEntry::packet_id(e : InFlightEntry) -> Int32 {
   return e.packet_id
 }
 
+///|
 pub fn InFlightEntry::stage(e : InFlightEntry) -> SendStage {
   return e.stage
 }
 
+///|
 pub fn InFlightEntry::publish(e : InFlightEntry) -> @protocol.PublishPacket {
   return e.publish
 }
 
+///|
 /// 持久会话存储：在途出站报文清单 + 报文标识游标。
 ///
 /// 字段本身即"可保存的结构"：落盘层只需遍历 `inflight_entries` 与
 /// `next_id`，恢复时用 `from_parts` 重建。
 pub struct SessionStore {
   inflight : Array[InFlightEntry]
-  next_id : Int
+  next_id : Int32
 }
 
+///|
 /// 空会话（新连接 clean_session=true，或首次以 clean_session=false 连接）。
 pub fn SessionStore::new() -> SessionStore {
-  return { inflight: [], next_id: 1 }
+  return { inflight: [], next_id: 1, }
 }
 
+///|
 /// 从落盘数据重建会话（恢复路径）。next_id 越界时夹回合法范围。
 pub fn SessionStore::from_parts(
-  next_id : Int, entries : Array[InFlightEntry],
+  next_id : Int32,
+  entries : Array[InFlightEntry],
 ) -> SessionStore {
   let n = if next_id < 1 || next_id > 0xFFFF { 1 } else { next_id }
-  return { inflight: entries, next_id: n }
+  return { inflight: entries, next_id: n, }
 }
 
+///|
 /// 下一个待分配的报文标识游标（落盘时保存）。
-pub fn SessionStore::next_id(s : SessionStore) -> Int {
+pub fn SessionStore::next_id(s : SessionStore) -> Int32 {
   return s.next_id
 }
 
+///|
 /// 全部在途条目（返回拷贝，落盘层遍历用）。
 pub fn SessionStore::inflight_entries(s : SessionStore) -> Array[InFlightEntry] {
   let out : Array[InFlightEntry] = []
@@ -80,14 +97,16 @@ pub fn SessionStore::inflight_entries(s : SessionStore) -> Array[InFlightEntry] 
   return out
 }
 
-pub fn SessionStore::inflight_count(s : SessionStore) -> Int {
+///|
+pub fn SessionStore::inflight_count(s : SessionStore) -> Int32 {
   return s.inflight.length()
 }
 
+///|
 /// 扫描 next_id 起的 1..65535 范围，找第一个未被 inflight 占用的 packet_id。
 /// MQTT §2.3.1：未完成握手期间的 packet_id 必须保留，不能复用。
 /// 全部占用时返回 0（调用方应报"out of packet ids"错误）。
-fn next_free_id(store : SessionStore) -> Int {
+fn next_free_id(store : SessionStore) -> Int32 {
   // 从游标开始扫描一圈（最多 65535 次）
   let mut candidate = store.next_id
   for _ in 0..<65535 {
@@ -105,13 +124,15 @@ fn next_free_id(store : SessionStore) -> Int {
   return 0
 }
 
+///|
 /// 记录一次出站 PUBLISH 并分配报文标识。
 /// QoS0 不入在途（握手无确认），返回 id=0 且不改变存储。
 /// QoS1 → WaitingPuback；QoS2 → WaitPubrec。
 /// 分配时跳过 inflight 已占用的 id（MQTT §2.3.1）；65535 个全部占用时 id=0 表示错误。
 pub fn record_outbound(
-  store : SessionStore, pkt : @protocol.PublishPacket,
-) -> (SessionStore, Int) {
+  store : SessionStore,
+  pkt : @protocol.PublishPacket,
+) -> (SessionStore, Int32) {
   match pkt.qos {
     @protocol.QoS::AtMostOnce => return (store, 0)
     _ => {
@@ -125,62 +146,72 @@ pub fn record_outbound(
         _ => SendStage::WaitPubrec
       }
       let stored = pkt.with_packet_id(pid)
-      let entry = { packet_id: pid, publish: stored, stage }
+      let entry = { packet_id: pid, publish: stored, stage, }
       // 拷贝一份再追加，避免别名污染入参 store
       let inflight : Array[InFlightEntry] = []
       for x in store.inflight {
         inflight.push(x)
       }
       inflight.push(entry)
-      return ({ inflight, next_id: next }, pid)
+      return ({ inflight, next_id: next, }, pid)
     }
   }
 }
 
+///|
 /// 为控制报文（SUBSCRIBE/UNSUBSCRIBE）分配 packet_id。
 /// 与 PUBLISH 共享 1..65535 id 空间，但不入 inflight（控制报文握手
 /// 是同步完成的，返回 SUBACK/UNSUBACK 后 id 即释放）。
-pub fn alloc_control_packet_id(store : SessionStore) -> (SessionStore, Int) {
+pub fn alloc_control_packet_id(store : SessionStore) -> (SessionStore, Int32) {
   let pid = next_free_id(store)
   if pid == 0 {
     return (store, 0)
   }
   let next = if pid >= 0xFFFF { 1 } else { pid + 1 }
-  return ({ inflight: store.inflight, next_id: next }, pid)
+  return ({ inflight: store.inflight, next_id: next, }, pid)
 }
 
-fn remove_by_id(store : SessionStore, packet_id : Int) -> SessionStore {
+///|
+fn remove_by_id(store : SessionStore, packet_id : Int32) -> SessionStore {
   let out : Array[InFlightEntry] = []
   for e in store.inflight {
     if e.packet_id != packet_id {
       out.push(e)
     }
   }
-  return { inflight: out, next_id: store.next_id }
+  return { inflight: out, next_id: store.next_id, }
 }
 
+///|
 /// 收到 PUBACK（QoS1 握手完成）：移除对应在途报文。
-pub fn on_puback(store : SessionStore, packet_id : Int) -> SessionStore {
+pub fn on_puback(store : SessionStore, packet_id : Int32) -> SessionStore {
   return remove_by_id(store, packet_id)
 }
 
+///|
 /// 收到 PUBCOMP（QoS2 握手完成）：移除对应在途报文。
-pub fn on_pubcomp(store : SessionStore, packet_id : Int) -> SessionStore {
+pub fn on_pubcomp(store : SessionStore, packet_id : Int32) -> SessionStore {
   return remove_by_id(store, packet_id)
 }
 
+///|
 /// 收到 PUBREC：WaitPubrec→WaitPubcomp 并产出 PUBREL；
 /// 重复 PUBREC（已在 WaitPubcomp）仍重发 PUBREL。
 pub fn on_pubrec(
-  store : SessionStore, packet_id : Int,
-) -> (SessionStore, Array[Int]) {
-  let mut out : Array[Int] = []
+  store : SessionStore,
+  packet_id : Int32,
+) -> (SessionStore, Array[Int32]) {
+  let mut out : Array[Int32] = []
   let new_inflight : Array[InFlightEntry] = []
   for e in store.inflight {
     if e.packet_id == packet_id {
       match e.stage {
         SendStage::WaitPubrec => {
-          new_inflight.push({ packet_id: e.packet_id, publish: e.publish, stage: SendStage::WaitPubcomp })
+          new_inflight.push({
+            packet_id: e.packet_id,
+            publish: e.publish,
+            stage: SendStage::WaitPubcomp,
+          })
           out = @protocol.encode_pubrel(packet_id)
         }
         SendStage::WaitPubcomp => {
@@ -193,14 +224,15 @@ pub fn on_pubrec(
       new_inflight.push(e)
     }
   }
-  return ({ inflight: new_inflight, next_id: store.next_id }, out)
+  return ({ inflight: new_inflight, next_id: store.next_id, }, out)
 }
 
+///|
 /// 断线重连后需重发的报文序列（按原始发送序）。
 /// - WaitingPuback / WaitPubrec：重编码 PUBLISH，DUP=1
 /// - WaitPubcomp：重发 PUBREL
-pub fn replay(store : SessionStore) -> Array[Array[Int]] {
-  let out : Array[Array[Int]] = []
+pub fn replay(store : SessionStore) -> Array[Array[Int32]] {
+  let out : Array[Array[Int32]] = []
   for e in store.inflight {
     match e.stage {
       SendStage::WaitPubcomp => out.push(@protocol.encode_pubrel(e.packet_id))
@@ -211,9 +243,10 @@ pub fn replay(store : SessionStore) -> Array[Array[Int]] {
   return out
 }
 
+///|
 /// clean_session=true 或会话正式结束：清空在途状态。
 pub fn reset(_store : SessionStore) -> SessionStore {
-  return { inflight: [], next_id: 1 }
+  return { inflight: [], next_id: 1, }
 }
 
 // ---------- 可落盘快照（"保存/恢复"闭环） ----------
@@ -224,8 +257,9 @@ pub fn reset(_store : SessionStore) -> SessionStore {
 // 字节。恢复时 `decode_publish` 还原报文，`SendStage::from_int` 还原阶段。
 // 本模块不碰文件 I/O（那是 native 层的事），只把状态变成可序列化的扁平结构。
 
+///|
 /// 阶段枚举 → 整数（落盘用，稳定编码，勿改号）。
-pub fn SendStage::to_int(s : SendStage) -> Int {
+pub fn SendStage::to_int(s : SendStage) -> Int32 {
   match s {
     SendStage::WaitingPuback => 0
     SendStage::WaitPubrec => 1
@@ -233,8 +267,9 @@ pub fn SendStage::to_int(s : SendStage) -> Int {
   }
 }
 
+///|
 /// 整数 → 阶段枚举；未知编号报错（坏盘/被篡改数据）。
-pub fn SendStage::from_int(i : Int) -> Result[SendStage, String] {
+pub fn SendStage::from_int(i : Int32) -> Result[SendStage, String] {
   match i {
     0 => Ok(SendStage::WaitingPuback)
     1 => Ok(SendStage::WaitPubrec)
@@ -243,45 +278,54 @@ pub fn SendStage::from_int(i : Int) -> Result[SendStage, String] {
   }
 }
 
+///|
 /// 一条可落盘的在途快照：`stage` 是阶段枚举值（见 `SendStage::to_int`），
 /// `wire` 是首次发送时的完整 PUBLISH 报文字节（dup=false）。
 pub struct InflightWire {
-  stage : Int
-  wire : Array[Int]
+  stage : Int32
+  wire : Array[Int32]
 }
 
-pub fn InflightWire::new(stage : Int, wire : Array[Int]) -> InflightWire {
-  return { stage, wire }
+///|
+pub fn InflightWire::new(stage : Int32, wire : Array[Int32]) -> InflightWire {
+  return { stage, wire, }
 }
 
+///|
 /// 导出可落盘快照：返回 (next_id, 在途条目)。调用方把这两个值写进文件，
 /// 下次进程启动后用 `SessionStore::restore` 重建。
-pub fn SessionStore::snapshot(s : SessionStore) -> (Int, Array[InflightWire]) {
+pub fn SessionStore::snapshot(s : SessionStore) -> (Int32, Array[InflightWire]) {
   let out : Array[InflightWire] = []
   for e in s.inflight {
-    out.push({ stage: e.stage.to_int(), wire: @protocol.encode_publish(e.publish) })
+    out.push({
+      stage: e.stage.to_int(),
+      wire: @protocol.encode_publish(e.publish),
+    })
   }
   return (s.next_id, out)
 }
 
+///|
 /// 从落盘快照恢复会话。逐条 `decode_publish`，任何一条字节坏了都带索引报错，
 /// 避免"半恢复"导致 packet_id 错乱。
 pub fn SessionStore::restore(
-  next_id : Int, items : Array[InflightWire],
+  next_id : Int32,
+  items : Array[InflightWire],
 ) -> Result[SessionStore, String] {
   let entries : Array[InFlightEntry] = []
   let mut i = 0
   for it in items {
     match @protocol.decode_publish(it.wire) {
-      Ok(pkt) => {
+      Ok(pkt) =>
         match SendStage::from_int(it.stage) {
-          Ok(stage) => entries.push({ packet_id: pkt.packet_id, publish: pkt, stage })
+          Ok(stage) =>
+            entries.push({ packet_id: pkt.packet_id, publish: pkt, stage, })
           Err(e) => return Err("restore item " + i.to_string() + ": " + e)
         }
-      }
-      Err(e) => return Err(
-        "restore item " + i.to_string() + ": bad publish bytes: " + e,
-      )
+      Err(e) =>
+        return Err(
+          "restore item " + i.to_string() + ": bad publish bytes: " + e,
+        )
     }
     i = i + 1
   }
@@ -292,11 +336,14 @@ pub fn SessionStore::restore(
 
 // 注意：跨包不能直接构造 @protocol.QoS::Xxx（read-only type），
 // 一律经 qos_from_int 构造、qos_value 比较，与 examples/pubsub 一致。
-fn mk_publish(qos_val : Int) -> @protocol.PublishPacket {
+
+///|
+fn mk_publish(qos_val : Int32) -> @protocol.PublishPacket {
   let qos = @protocol.qos_from_int(qos_val).unwrap()
   return @protocol.PublishPacket::new("t", [0x00], qos, false, false, 0)
 }
 
+///|
 test "record qos1 tracks inflight and assigns id" {
   let s0 = SessionStore::new()
   match record_outbound(s0, mk_publish(1)) {
@@ -308,6 +355,7 @@ test "record qos1 tracks inflight and assigns id" {
   }
 }
 
+///|
 test "qos0 not tracked" {
   let s0 = SessionStore::new()
   match record_outbound(s0, mk_publish(0)) {
@@ -318,6 +366,7 @@ test "qos0 not tracked" {
   }
 }
 
+///|
 test "qos1 puback clears inflight" {
   let s0 = SessionStore::new()
   match record_outbound(s0, mk_publish(1)) {
@@ -329,6 +378,7 @@ test "qos1 puback clears inflight" {
   }
 }
 
+///|
 test "replay qos1 publish sets dup flag" {
   let s0 = SessionStore::new()
   match record_outbound(s0, mk_publish(1)) {
@@ -350,6 +400,7 @@ test "replay qos1 publish sets dup flag" {
   }
 }
 
+///|
 test "qos2 full handshake transitions and clears" {
   let s0 = SessionStore::new()
   match record_outbound(s0, mk_publish(2)) {
@@ -384,6 +435,7 @@ test "qos2 full handshake transitions and clears" {
   }
 }
 
+///|
 test "replay preserves send order" {
   let s0 = SessionStore::new()
   let (s1, _) = record_outbound(s0, mk_publish(1))
@@ -401,6 +453,7 @@ test "replay preserves send order" {
   }
 }
 
+///|
 test "reset clears session" {
   let s0 = SessionStore::new()
   let (s1, _) = record_outbound(s0, mk_publish(1))
@@ -409,6 +462,7 @@ test "reset clears session" {
   assert_eq(s2.next_id(), 1)
 }
 
+///|
 test "snapshot roundtrip via from_parts" {
   let s0 = SessionStore::new()
   let (s1, _) = record_outbound(s0, mk_publish(1))
@@ -419,6 +473,7 @@ test "snapshot roundtrip via from_parts" {
   assert_eq(replay(restored), replay(s1))
 }
 
+///|
 test "next id skips inflight occupied" {
   // 第一次 publish 分配 id=1 并在途（未 ACK）
   let s0 = SessionStore::new()
@@ -436,6 +491,7 @@ test "next id skips inflight occupied" {
 
 // ---------- snapshot / restore（字节级保存/恢复闭环） ----------
 
+///|
 test "snapshot restore replays identically" {
   let s0 = SessionStore::new()
   let (s1, _) = record_outbound(s0, mk_publish(1))
@@ -455,6 +511,7 @@ test "snapshot restore replays identically" {
   }
 }
 
+///|
 test "restore keeps id cursor and continues allocation" {
   let s0 = SessionStore::new()
   let (s1, _) = record_outbound(s0, mk_publish(1))
@@ -470,6 +527,7 @@ test "restore keeps id cursor and continues allocation" {
   }
 }
 
+///|
 test "restore rejects corrupt publish bytes" {
   let bad = [InflightWire::new(0, [0x30, 0x01, 0xFF])] // 截断的坏帧
   match SessionStore::restore(1, bad) {
@@ -478,6 +536,7 @@ test "restore rejects corrupt publish bytes" {
   }
 }
 
+///|
 test "restore rejects unknown stage code" {
   let good = match record_outbound(SessionStore::new(), mk_publish(1)) {
     (s, _) => {
@@ -492,6 +551,7 @@ test "restore rejects unknown stage code" {
   }
 }
 
+///|
 test "stage to_int from_int roundtrip" {
   assert_eq(SendStage::WaitingPuback.to_int(), 0)
   assert_eq(SendStage::WaitPubrec.to_int(), 1)

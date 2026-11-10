@@ -1,5 +1,5 @@
+///|
 /// ByteWriter / ByteReader（无状态读端）往返测试。
-
 test "writer reader roundtrip" {
   let w = @protocol.ByteWriter::new()
   w.push_byte(0x10)
@@ -48,6 +48,7 @@ test "writer reader roundtrip" {
   assert_eq(pos, data.length())
 }
 
+///|
 test "writer reader chinese string" {
   let w = @protocol.ByteWriter::new()
   w.push_string("IoT/设备/状态")
@@ -59,23 +60,30 @@ test "writer reader chinese string" {
   }
 }
 
+///|
 test "reader out of range" {
   let r = @protocol.ByteReader::new([])
-  assert_true(match r.read_byte(0) {
-    Err(_) => true
-    Ok(_) => false
-  })
+  assert_true(
+    match r.read_byte(0) {
+      Err(_) => true
+      Ok(_) => false
+    },
+  )
 }
 
+///|
 test "reader binary truncated" {
   // 声明长度 5 但只剩 2 字节
   let r = @protocol.ByteReader::new([0x00, 0x05, 0x01, 0x02])
-  assert_true(match r.read_binary(0) {
-    Err(_) => true
-    Ok(_) => false
-  })
+  assert_true(
+    match r.read_binary(0) {
+      Err(_) => true
+      Ok(_) => false
+    },
+  )
 }
 
+///|
 test "writer bytes length matches reader" {
   let w = @protocol.ByteWriter::new()
   w.push_string("a")

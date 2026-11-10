@@ -6,19 +6,23 @@
 /// - onmessage 收到 broker 字节后，用 @core.ClientCore.feed() 喂给状态机，
 ///   打印 CoreEvent。
 
+///|
 /// 包级持有 core 实例（spike 单连接，无需多实例）。
 /// extern "js" 不支持把函数类型作参数传给 JS，且 MoonBit 顶层不支持 let mut，
 /// 因此用单元素数组作为可变容器（Array 是引用类型，元素可赋值）。
 let g_core : Array[@core.ClientCore?] = [None]
 
+///|
 /// 出站 packet_id 分配计数器（SUBSCRIBE 用，spike 阶段单连接单订阅）。
-let g_next_pid : Array[Int] = [1]
+let g_next_pid : Array[Int32] = [1]
 
+///|
 /// 预记录的 QoS2 PUBLISH 字节（main 里构造，CONNACK 后由 JS 发出）。
-let g_qos2_pub : Array[Array[Int]] = [[]]
+let g_qos2_pub : Array[Array[Int32]] = [[]]
 
+///|
 /// 把一个字节（0..=255）转成两位大写 hex 字符串。
-fn byte_to_hex(b : Int) -> String {
+fn byte_to_hex(b : Int32) -> String {
   let hi = b / 16
   let lo = b % 16
   let hi_s = match hi {
@@ -60,8 +64,9 @@ fn byte_to_hex(b : Int) -> String {
   return hi_s + lo_s
 }
 
+///|
 /// 把字节数组转成 "A1 B2 C3" 格式的 hex 字符串。
-fn bytes_to_hex(bytes : Array[Int]) -> String {
+fn bytes_to_hex(bytes : Array[Int32]) -> String {
   let mut s = ""
   for i in 0..<bytes.length() {
     if i > 0 {
@@ -72,6 +77,7 @@ fn bytes_to_hex(bytes : Array[Int]) -> String {
   return s
 }
 
+///|
 /// 把 CoreEvent 数组格式化成一行可读文本，替代 Debug derive（CoreEvent 未 derive）。
 fn format_events(events : Array[@core.CoreEvent]) -> String {
   let mut s = "["
@@ -85,13 +91,15 @@ fn format_events(events : Array[@core.CoreEvent]) -> String {
   return s
 }
 
+///|
 fn format_event(e : @core.CoreEvent) -> String {
   match e {
     @core.CoreEvent::ConnackReceived(c) => {
       let sp = if c.session_present { "1" } else { "0" }
       let rc = match c.return_code {
         @protocol.ConnectReturnCode::ConnectionAccepted => "Accepted"
-        @protocol.ConnectReturnCode::UnacceptableProtocolVersion => "BadProtocol"
+        @protocol.ConnectReturnCode::UnacceptableProtocolVersion =>
+          "BadProtocol"
         @protocol.ConnectReturnCode::IdentifierRejected => "IdRejected"
         @protocol.ConnectReturnCode::ServerUnavailable => "ServerUnavail"
         @protocol.ConnectReturnCode::BadUsernameOrPassword => "BadCreds"
@@ -99,16 +107,22 @@ fn format_event(e : @core.CoreEvent) -> String {
       }
       return "Connack(session_present=" + sp + ", return_code=" + rc + ")"
     }
-    @core.CoreEvent::PublishReceived(p) => {
-      return "Publish(topic=" + p.topic + ", payload=" + bytes_to_hex(p.payload) + ")"
-    }
-    @core.CoreEvent::SubackReceived(_) => return "Suback(subscribed to sensors/#)"
+    @core.CoreEvent::PublishReceived(p) =>
+      return "Publish(topic=" +
+        p.topic +
+        ", payload=" +
+        bytes_to_hex(p.payload) +
+        ")"
+    @core.CoreEvent::SubackReceived(_) =>
+      return "Suback(subscribed to sensors/#)"
     @core.CoreEvent::PingRespReceived => return "PingResp"
-    @core.CoreEvent::UnknownPacketType(t) => return "UnknownType(" + t.to_string() + ")"
+    @core.CoreEvent::UnknownPacketType(t) =>
+      return "UnknownType(" + t.to_string() + ")"
     @core.CoreEvent::FramerError(e) => return "FramerError(" + e + ")"
   }
 }
 
+///|
 /// JS onmessage 回调：把 broker 收到的字节喂给 core，打印事件，
 /// 返回出站字节数组（JS 侧直接 ws.send 发回 broker）。
 /// 当 events 中包含 ConnackReceived 时，自动构造 SUBSCRIBE("sensors/#", QoS1)
@@ -116,27 +130,35 @@ fn format_event(e : @core.CoreEvent) -> String {
 /// 注：必须被 main() 实际调用一次（spike_on_bytes([])），否则整条链
 /// （spike_on_bytes → core.feed → format_events → format_event）会被
 /// dead code elimination 掉，JS 侧 onmessage 找不到对应函数。
-pub fn spike_on_bytes(bytes : Array[Int]) -> Array[Int] {
+pub fn spike_on_bytes(bytes : Array[Int32]) -> Array[Int32] {
   match g_core[0] {
-    Some(core) => {
+    Some(core) =>
       match core.feed(bytes) {
         (events, outgoing) => {
           println("[spike] core feed() events: " + format_events(events))
           // 检测 ConnackReceived → 构造 SUBSCRIBE 字节 prepend
-          let mut prepend : Array[Int] = []
+          let mut prepend : Array[Int32] = []
           for e in events {
             match e {
               @core.CoreEvent::ConnackReceived(_) => {
                 let pid = g_next_pid[0]
                 g_next_pid[0] = pid + 1
-                let sub = @protocol.Subscription::new("sensors/#", @protocol.qos1())
+                let sub = @protocol.Subscription::new(
+                  "sensors/#",
+                  @protocol.qos1(),
+                )
                 let pkt = @protocol.SubscribePacket::new(pid, [sub])
                 prepend = @protocol.encode_subscribe(pkt)
-                println("[spike] sending SUBSCRIBE pid=" + pid.to_string() + " sensors/# QoS1")
+                println(
+                  "[spike] sending SUBSCRIBE pid=" +
+                  pid.to_string() +
+                  " sensors/# QoS1",
+                )
                 // 同时发送预记录的 QoS2 PUBLISH（pid 已在 SessionStore 中分配）
                 println(
                   "[spike] sending QoS2 PUBLISH sensors/qos2 (" +
-                    g_qos2_pub[0].length().to_string() + " bytes)"
+                  g_qos2_pub[0].length().to_string() +
+                  " bytes)",
                 )
                 for b in g_qos2_pub[0] {
                   prepend.push(b)
@@ -146,7 +168,7 @@ pub fn spike_on_bytes(bytes : Array[Int]) -> Array[Int] {
             }
           }
           // 合并 prepend + outgoing
-          let result : Array[Int] = []
+          let result : Array[Int32] = []
           for b in prepend {
             result.push(b)
           }
@@ -156,11 +178,11 @@ pub fn spike_on_bytes(bytes : Array[Int]) -> Array[Int] {
           return result
         }
       }
-    }
     None => return []
   }
 }
 
+///|
 /// JS onclose 回调：通知 MoonBit core transport 已断开。
 /// core 内部把状态切到 Disconnected，保留 SessionStore（in-flight QoS1/2
 /// 重连后继续推进）。JS 侧随后 setTimeout 1s 新建 WebSocket。
@@ -174,16 +196,18 @@ pub fn spike_on_transport_close() -> Unit {
   }
 }
 
+///|
 /// JS 新 WebSocket onopen 时调用：让 MoonBit core 重新编码 CONNECT 字节，
 /// 内部把状态切回 Connecting、清空 framer 残留缓冲、保留 SessionStore。
 /// 返回的字节数组由 JS 侧 ws.send 发出。
-pub fn spike_reconnect_bytes() -> Array[Int] {
+pub fn spike_reconnect_bytes() -> Array[Int32] {
   match g_core[0] {
     Some(core) => {
       let bytes = core.reconnect_bytes()
       println(
-        "[spike] core.reconnect_bytes() → " + bytes.length().to_string() +
-          " bytes (state=Connecting, session preserved)",
+        "[spike] core.reconnect_bytes() → " +
+        bytes.length().to_string() +
+        " bytes (state=Connecting, session preserved)",
       )
       return bytes
     }
@@ -203,8 +227,10 @@ pub fn spike_reconnect_bytes() -> Array[Int] {
 // - 新 onopen 时调 spike_reconnect_bytes() 拿新 CONNECT 字节（core 已切回 Connecting）；
 // - 重连后收到新 CONNACK，feed() 检测到 ConnackReceived 会再次自动 SUBSCRIBE；
 // - 重连次数在 JS 闭包里计数，spike 阶段限 3 次，超过不再重连。
+
+///|
 /// 把 Array[Int] 转成 FixedArray[Int]（JS FFI 边界要求 FixedArray）。
-fn to_fixed_array(arr : Array[Int]) -> FixedArray[Int] {
+fn to_fixed_array(arr : Array[Int32]) -> FixedArray[Int32] {
   let out = FixedArray::make(arr.length(), 0)
   for i in 0..<arr.length() {
     out[i] = arr[i]
@@ -212,7 +238,8 @@ fn to_fixed_array(arr : Array[Int]) -> FixedArray[Int] {
   return out
 }
 
-extern "js" fn run_ws_spike(connect_bytes : FixedArray[Int]) -> Unit =
+///|
+extern "js" fn run_ws_spike(connect_bytes : FixedArray[Int32]) -> Unit =
   #|(connectBytes) => {
   #|  const url = "wss://broker.emqx.io:8084/mqtt";
   #|  let initialBytes = connectBytes;
@@ -281,7 +308,8 @@ extern "js" fn run_ws_spike(connect_bytes : FixedArray[Int]) -> Unit =
   #|  openWs();
   #|}
 
-fn main() -> Unit {
+///|
+fn main {
   // 防止 DCE：spike_on_bytes / spike_on_transport_close / spike_reconnect_bytes
   // 以及 feed / format_events 链只被 extern "js" 引用，编译器静态分析不到，
   // 必须在这里实际调用一次才会生成对应 JS 函数。
@@ -294,24 +322,34 @@ fn main() -> Unit {
   // 并记录到 SessionStore。这样 core.feed() 收到 broker 回的 PUBREC 时，
   // 会自动产出 PUBREL 字节；收到 PUBCOMP 时清掉在途——完整 QoS2 握手。
   let qos2_pkt = @protocol.PublishPacket::new(
-    "sensors/qos2", [0x71, 0x6F, 0x73, 0x32], @protocol.qos2(), false, false, 0
+    "sensors/qos2",
+    [0x71, 0x6F, 0x73, 0x32],
+    @protocol.qos2(),
+    false,
+    false,
+    0,
   )
   match @session.record_outbound(@session.SessionStore::new(), qos2_pkt) {
     (store, pid) => {
       let pkt_with_pid = qos2_pkt.with_packet_id(pid)
       g_qos2_pub[0] = @protocol.encode_publish(pkt_with_pid)
       println(
-        "[spike] QoS2 PUBLISH prepared: pid=" + pid.to_string() +
-          " topic=sensors/qos2 payload=qos2 (" +
-          g_qos2_pub.length().to_string() + " bytes)"
+        "[spike] QoS2 PUBLISH prepared: pid=" +
+        pid.to_string() +
+        " topic=sensors/qos2 payload=qos2 (" +
+        g_qos2_pub.length().to_string() +
+        " bytes)",
       )
       // core 带上预记录的 SessionStore（在途 QoS2 PUBLISH）
       let core = @core.ClientCore::with_session(
-        @protocol.ConnectPacket::new("ws-spike"), store
+        @protocol.ConnectPacket::new("ws-spike"),
+        store,
       )
       let connect_bytes = core.start()
       println(
-        "[spike] core start() generated CONNECT, " + connect_bytes.length().to_string() + " bytes"
+        "[spike] core start() generated CONNECT, " +
+        connect_bytes.length().to_string() +
+        " bytes",
       )
       g_core[0] = Some(core)
       run_ws_spike(to_fixed_array(connect_bytes))

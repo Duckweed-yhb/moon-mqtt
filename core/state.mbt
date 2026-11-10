@@ -1,3 +1,4 @@
+///|
 /// 连接状态机。
 ///
 /// 最小连接状态机：
@@ -8,7 +9,6 @@
 ///
 /// 注：MoonBit enum variant 不能直接 == 比较，必须按仓库现有写法
 /// 显式 extend Eq::{not_equal, equal} 与 Debug::{to_repr}。
-
 pub enum CoreState {
   Disconnected
   Connecting
@@ -16,5 +16,8 @@ pub enum CoreState {
   Disconnecting
 } derive(Eq, Debug)
 
+///|
 pub extend CoreState with Eq::{not_equal, equal}
+
+///|
 pub extend CoreState with @moonbitlang/core/debug.Debug::{to_repr}

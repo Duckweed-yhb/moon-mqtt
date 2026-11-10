@@ -9,12 +9,14 @@
 /// PUBCOMP 后推进状态；断线后调用 `replay_frames()` 可拿到待重放帧序列，
 /// 用于实现 clean_session=false 的会话恢复。
 
+///|
 /// 单次 socket 读的默认超时（毫秒）。覆盖 CONNACK/PUBACK/PINGRESP 等
 /// 同步等待，避免 broker 不回包时永久挂起。
-fn read_timeout_ms() -> Int {
+fn read_timeout_ms() -> Int32 {
   5000
 }
 
+///|
 /// 连接抽象：`client` 只依赖这四个动作，不直接依赖具体 socket 实现。
 ///
 /// 生产路径由 `@transport.TcpClient` 实现（真实 TCP）；单测由
@@ -25,46 +27,53 @@ fn read_timeout_ms() -> Int {
 /// trait。这是内部接缝，不打算让使用者自己实现；对外 API 仍是
 /// `connect_opts` / `publish` / `subscribe` / `poll_loop` 这一套。
 pub trait Conn {
-  write(Self, Array[Int]) -> Result[Unit, String]
-  read_some(Self, Int) -> Result[Array[Int], String]
-  wait_read(Self, Int) -> Result[Bool, String]
-  close(Self) -> Unit
+  fn write(Self, Array[Int32]) -> Result[Unit, String]
+  fn read_some(Self, Int32) -> Result[Array[Int32], String]
+  fn wait_read(Self, Int32) -> Result[Bool, String]
+  fn close(Self) -> Unit
 }
 
-impl Conn for @transport.TcpClient with write(self, bytes) {
+///|
+impl Conn for @transport.TcpClient with fn write(self, bytes) {
   @transport.TcpClient::write(self, bytes)
 }
 
-impl Conn for @transport.TcpClient with read_some(self, max) {
+///|
+impl Conn for @transport.TcpClient with fn read_some(self, max) {
   @transport.TcpClient::read_some(self, max)
 }
 
-impl Conn for @transport.TcpClient with wait_read(self, timeout_ms) {
+///|
+impl Conn for @transport.TcpClient with fn wait_read(self, timeout_ms) {
   @transport.TcpClient::wait_read(self, timeout_ms)
 }
 
-impl Conn for @transport.TcpClient with close(self) {
+///|
+impl Conn for @transport.TcpClient with fn close(self) {
   @transport.TcpClient::close(self)
 }
 
+///|
 /// 一条本地订阅注册：topic filter + 收到 PUBLISH 时的回调。
 /// 回调参数是 (topic, payload)，QoS 由入站 PUBLISH 帧自带。
-type SubHandler = (String, Array[Int]) -> Unit
+type SubHandler = (String, Array[Int32]) -> Unit
 
+///|
 struct SubscriptionReg {
   filter : String
   qos : @protocol.QoS
   handler : SubHandler
 }
 
+///|
 /// MQTT 客户端。
 pub struct MqttClient {
   tcp : &Conn
   host : String
-  port : Int
+  port : Int32
   opts : @protocol.ConnectPacket
   client_id : String
-  keep_alive : Int
+  keep_alive : Int32
   store : Array[@session.SessionStore]
   /// CONNACK 返回的 session_present 标志（MQTT §3.2.2.3）。
   /// false 表示 broker 上没有保留的会话，本地 inflight 已被清空。
@@ -72,22 +81,28 @@ pub struct MqttClient {
   /// 本地订阅注册表：poll() 收到 PUBLISH 时按 topic filter 匹配并派发。
   subs : Array[SubscriptionReg]
   /// 上次发出 PINGREQ 至今的毫秒数（用于 poll_loop 自动心跳）。
-  last_ping_ms : Array[Int]
+  last_ping_ms : Array[Int32]
   /// 入站 QoS2 尚未收到 PUBREL 的 packet_id，用于重复 PUBLISH 去重。
-  mut inbound_qos2 : Array[Int]
+  mut inbound_qos2 : Array[Int32]
 }
 
+///|
 /// 用默认参数连接（keep_alive=60、clean_session=true、无认证）。
 pub fn connect(
-  host : String, port : Int, client_id : String
+  host : String,
+  port : Int32,
+  client_id : String,
 ) -> Result[MqttClient, String] {
   connect_opts(host, port, @protocol.ConnectPacket::new(client_id))
 }
 
+///|
 /// 用自定义 CONNECT 参数连接，握手 CONNACK 通过后返回已连接客户端。
 /// 任何失败路径都会关闭已建立的 TCP 连接，避免 fd 泄漏。
 pub fn connect_opts(
-  host : String, port : Int, pkt : @protocol.ConnectPacket
+  host : String,
+  port : Int32,
+  pkt : @protocol.ConnectPacket,
 ) -> Result[MqttClient, String] {
   let tcp = match @transport.connect(host, port) {
     Ok(t) => t
@@ -96,13 +111,17 @@ pub fn connect_opts(
   handshake(tcp, host, port, pkt)
 }
 
+///|
 /// CONNECT/CONNACK 握手：在已建立的连接上发 CONNECT、等 CONNACK。
 ///
 /// 从 `connect_opts` 抽出来，是为了让单测能注入假连接而不改公开 API；
 /// 生产路径仍由 `connect_opts` 用真实 TCP 调进来。任何失败路径都会
 /// 关闭连接，避免 fd 泄漏。
 fn handshake(
-  tcp : &Conn, host : String, port : Int, pkt : @protocol.ConnectPacket
+  tcp : &Conn,
+  host : String,
+  port : Int32,
+  pkt : @protocol.ConnectPacket,
 ) -> Result[MqttClient, String] {
   // 发 CONNECT
   match tcp.write(@protocol.encode_connect(pkt)) {
@@ -114,17 +133,18 @@ fn handshake(
   }
   // 读 CONNACK
   let connack = match read_frame(tcp, read_timeout_ms()) {
-    Ok(bytes) => match @protocol.decode_packet(bytes) {
-      Ok(@protocol.IncomingPacket::Connack(c)) => c
-      Ok(_) => {
-        tcp.close()
-        return Err("expected CONNACK")
+    Ok(bytes) =>
+      match @protocol.decode_packet(bytes) {
+        Ok(@protocol.IncomingPacket::Connack(c)) => c
+        Ok(_) => {
+          tcp.close()
+          return Err("expected CONNACK")
+        }
+        Err(e) => {
+          tcp.close()
+          return Err(e)
+        }
       }
-      Err(e) => {
-        tcp.close()
-        return Err(e)
-      }
-    }
     Err(e) => {
       tcp.close()
       return Err(e)
@@ -141,23 +161,22 @@ fn handshake(
   // 首次连接 store 本来就是空；重连场景下调用方应在重连前用
   // set_session_store() 把旧 store 塞回来，再依据 is_session_present()
   // 决定是否 replay()。
-  return Ok(
-    {
-      tcp,
-      host,
-      port,
-      opts: pkt,
-      client_id: pkt.client_id,
-      keep_alive: pkt.keep_alive,
-      store: [@session.SessionStore::new()],
-      session_present: [connack.session_present],
-      subs: [],
-      last_ping_ms: [0],
-      inbound_qos2: [],
-    },
-  )
+  return Ok({
+    tcp,
+    host,
+    port,
+    opts: pkt,
+    client_id: pkt.client_id,
+    keep_alive: pkt.keep_alive,
+    store: [@session.SessionStore::new()],
+    session_present: [connack.session_present],
+    subs: [],
+    last_ping_ms: [0],
+    inbound_qos2: [],
+  })
 }
 
+///|
 /// 返回上次 CONNACK 的 session_present 标志（MQTT §3.2.2.3）。
 /// true = broker 保留了同名 client_id 的会话，可调用 `replay_frames()`
 /// 重发在途报文；false = broker 上无保留会话，replay 无意义。
@@ -165,12 +184,17 @@ pub fn MqttClient::is_session_present(self : MqttClient) -> Bool {
   return self.session_present[0]
 }
 
+///|
 /// 替换内部 SessionStore（用于断线重连场景：把旧 client 的 store
 /// 快照塞回新建的 client，再依据 `is_session_present()` 决定是否 replay）。
-pub fn MqttClient::set_session_store(self : MqttClient, store : @session.SessionStore) -> Unit {
+pub fn MqttClient::set_session_store(
+  self : MqttClient,
+  store : @session.SessionStore,
+) -> Unit {
   self.store[0] = store
 }
 
+///|
 /// 发送 PUBLISH。QoS 语义：
 /// - QoS0：直发；
 /// - QoS1：记录在途 → 发 PUBLISH → 等 PUBACK → 从在途清除；
@@ -179,7 +203,10 @@ pub fn MqttClient::set_session_store(self : MqttClient, store : @session.Session
 ///
 /// 在途报文由 `store` 持久化；断线后 `replay_frames()` 可拿到待重放帧。
 pub fn MqttClient::publish(
-  self : MqttClient, topic : String, payload : Array[Int], qos : @protocol.QoS
+  self : MqttClient,
+  topic : String,
+  payload : Array[Int32],
+  qos : @protocol.QoS,
 ) -> Result[Unit, String] {
   // MQTT §3.3.1-3.3.2：PUBLISH topic 是 UTF-8 字符串，长度 1-65535，
   // 不能含 U+0000。payload 任意长度但 ≤268435455（剩余长度上限）。
@@ -228,7 +255,8 @@ pub fn MqttClient::publish(
             Ok(_) => ()
           }
         }
-        Ok(@protocol.IncomingPacket::Pubrec(_)) => return Err("PUBREC id mismatch")
+        Ok(@protocol.IncomingPacket::Pubrec(_)) =>
+          return Err("PUBREC id mismatch")
         Ok(_) => return Err("expected PUBREC")
         Err(e) => return Err(e)
       }
@@ -245,10 +273,13 @@ pub fn MqttClient::publish(
   }
 }
 
+///|
 /// 订阅一个主题过滤器，等 SUBACK 确认。SUBSCRIBE 的 packet_id 从 store
 /// 分配（与 PUBLISH 共享 id 空间），但不入 inflight（同步握手完成即释放）。
 pub fn MqttClient::subscribe(
-  self : MqttClient, topic : String, qos : @protocol.QoS
+  self : MqttClient,
+  topic : String,
+  qos : @protocol.QoS,
 ) -> Result[Unit, String] {
   match validate_publish_topic(topic) {
     Ok(_) => ()
@@ -266,24 +297,27 @@ pub fn MqttClient::subscribe(
     Ok(_) => ()
   }
   match self.read_control() {
-    Ok(@protocol.IncomingPacket::Suback(s)) if s.packet_id == pid => {
+    Ok(@protocol.IncomingPacket::Suback(s)) if s.packet_id == pid =>
       if s.all_accepted() {
         Ok(())
       } else {
         Err("SUBACK rejected")
       }
-    }
     Ok(@protocol.IncomingPacket::Suback(_)) => Err("SUBACK id mismatch")
     Ok(_) => Err("expected SUBACK")
     Err(e) => Err(e)
   }
 }
 
+///|
 /// 订阅并注册回调：发 SUBSCRIBE 等 SUBACK，成功后把 (filter, handler)
 /// 存进本地注册表。之后调 `poll_once()` 收到匹配的 PUBLISH 时会逐个调用
 /// handler(topic, payload)。同一个 filter 重复订阅会覆盖旧 handler。
 pub fn MqttClient::subscribe_with_handler(
-  self : MqttClient, topic : String, qos : @protocol.QoS, handler : SubHandler
+  self : MqttClient,
+  topic : String,
+  qos : @protocol.QoS,
+  handler : SubHandler,
 ) -> Result[Unit, String] {
   match self.subscribe(topic, qos) {
     Ok(_) => {
@@ -291,20 +325,21 @@ pub fn MqttClient::subscribe_with_handler(
       let mut i = 0
       while i < self.subs.length() {
         if self.subs[i].filter == topic {
-          self.subs[i] = { filter: topic, qos: qos, handler }
+          self.subs[i] = { filter: topic, qos, handler, }
           return Ok(())
         }
         i = i + 1
       }
-      self.subs.push({ filter: topic, qos: qos, handler })
+      self.subs.push({ filter: topic, qos, handler, })
       Ok(())
     }
     Err(e) => Err(e)
   }
 }
 
+///|
 /// 入站 QoS2 去重辅助。
-fn pid_contains(pids : Array[Int], pid : Int) -> Bool {
+fn pid_contains(pids : Array[Int32], pid : Int32) -> Bool {
   for p in pids {
     if p == pid {
       return true
@@ -313,8 +348,9 @@ fn pid_contains(pids : Array[Int], pid : Int) -> Bool {
   return false
 }
 
-fn pid_without(pids : Array[Int], pid : Int) -> Array[Int] {
-  let kept : Array[Int] = []
+///|
+fn pid_without(pids : Array[Int32], pid : Int32) -> Array[Int32] {
+  let kept : Array[Int32] = []
   for p in pids {
     if p != pid {
       kept.push(p)
@@ -323,6 +359,7 @@ fn pid_without(pids : Array[Int], pid : Int) -> Array[Int] {
   return kept
 }
 
+///|
 /// 派发一条入站 PUBLISH：QoS1/2 先回 ACK，再按本地订阅表调 handler。
 ///
 /// `poll_once` 与同步握手等待共用这一条路径。握手往返期间 broker 完全
@@ -330,18 +367,18 @@ fn pid_without(pids : Array[Int], pid : Int) -> Array[Int] {
 /// 直接当错误返回，等于把这条消息从 socket 里读走丢掉，后续 poll 也补不
 /// 回来——这是 10 月轮验收被拒的那条缺陷。
 fn MqttClient::dispatch_publish(
-  self : MqttClient, p : @protocol.PublishPacket
+  self : MqttClient,
+  p : @protocol.PublishPacket,
 ) -> Result[Unit, String] {
   // QoS1/2 先回 ACK，再调用户回调。QoS2 不在这里等 PUBREL：
   // PUBREL 由 read_control / poll_once 的独立分支回 PUBCOMP，避免插帧丢消息。
   let mut deliver = true
   match p.qos {
-    @protocol.QoS::AtLeastOnce => {
+    @protocol.QoS::AtLeastOnce =>
       match self.tcp.write(@protocol.encode_puback(p.packet_id)) {
         Ok(_) => ()
         Err(e) => return Err(e)
       }
-    }
     @protocol.QoS::ExactlyOnce => {
       if pid_contains(self.inbound_qos2, p.packet_id) {
         deliver = false
@@ -365,6 +402,7 @@ fn MqttClient::dispatch_publish(
   Ok(())
 }
 
+///|
 /// 读下一条控制应答报文，途中消化业务 PUBLISH 与入站 PUBREL 握手。
 ///
 /// `publish` 等 PUBACK/PUBREC/PUBCOMP、`subscribe` 等 SUBACK、`ping` 等
@@ -372,7 +410,7 @@ fn MqttClient::dispatch_publish(
 /// handler，不能因为「不是期待的目标包」就丢掉。入站 PUBREL 也一并回
 /// PUBCOMP，否则双向 QoS2 会在握手途中卡住。
 fn MqttClient::read_control(
-  self : MqttClient
+  self : MqttClient,
 ) -> Result[@protocol.IncomingPacket, String] {
   let mut result : Result[@protocol.IncomingPacket, String] = Err("unreachable")
   while true {
@@ -405,6 +443,7 @@ fn MqttClient::read_control(
   result
 }
 
+///|
 /// 阻塞读一帧入站报文并派发：
 /// - PUBLISH：按 topic filter 匹配本地订阅表，调对应 handler；
 ///   QoS1/2 的 PUBLISH 会自动回 PUBACK / PUBREC+PUBREL；
@@ -415,7 +454,10 @@ fn MqttClient::read_control(
 ///
 /// 返回 `Ok(true)` 表示处理了一帧；`Ok(false)` 表示 timeout_ms 内无数据
 /// （调用方可借此检查是否该发 PINGREQ 保活）；`Err` 表示读错误。
-pub fn MqttClient::poll_once(self : MqttClient, timeout_ms : Int) -> Result[Bool, String] {
+pub fn MqttClient::poll_once(
+  self : MqttClient,
+  timeout_ms : Int32,
+) -> Result[Bool, String] {
   match self.tcp.wait_read(timeout_ms) {
     Ok(false) => return Ok(false)
     Ok(true) => ()
@@ -426,12 +468,11 @@ pub fn MqttClient::poll_once(self : MqttClient, timeout_ms : Int) -> Result[Bool
     Err(e) => return Err(e)
   }
   match pkt {
-    @protocol.IncomingPacket::Publish(p) => {
+    @protocol.IncomingPacket::Publish(p) =>
       match self.dispatch_publish(p) {
         Ok(_) => Ok(true)
         Err(e) => Err(e)
       }
-    }
     @protocol.IncomingPacket::Puback(id) => {
       self.store[0] = @session.on_puback(self.store[0], id)
       Ok(true)
@@ -465,6 +506,7 @@ pub fn MqttClient::poll_once(self : MqttClient, timeout_ms : Int) -> Result[Bool
   }
 }
 
+///|
 /// 发送 PINGREQ 并等 PINGRESP（保活）。
 pub fn MqttClient::ping(self : MqttClient) -> Result[Unit, String] {
   match self.tcp.write(@protocol.encode_pingreq()) {
@@ -478,6 +520,7 @@ pub fn MqttClient::ping(self : MqttClient) -> Result[Unit, String] {
   }
 }
 
+///|
 /// 持续服务循环：连调 `poll_once(timeout_ms)` 共 `rounds` 轮。
 ///
 /// 每轮内部自动心跳：累计等待时长达到 keep_alive 秒时，自动发一次 PINGREQ
@@ -487,7 +530,9 @@ pub fn MqttClient::ping(self : MqttClient) -> Result[Unit, String] {
 /// 秒 poll 一次；收到 PUBLISH 会在 subscribe_with_handler 注册的回调里
 /// 派发。任何读/写错误会立刻返回 Err，调用方据此决定是否 reconnect。
 pub fn MqttClient::poll_loop(
-  self : MqttClient, rounds : Int, timeout_ms : Int
+  self : MqttClient,
+  rounds : Int32,
+  timeout_ms : Int32,
 ) -> Result[Unit, String] {
   let keep_ms = self.keep_alive * 1000
   let mut remaining = rounds
@@ -508,6 +553,7 @@ pub fn MqttClient::poll_loop(
   Ok(())
 }
 
+///|
 /// 断线后重连：用原 host/port/opts 重新 CONNECT，把旧 store 带过去，
 /// 再依据新 CONNACK 的 session_present 决定是否 replay 在途帧。
 ///
@@ -583,6 +629,7 @@ pub fn MqttClient::reconnect(self : MqttClient) -> Result[MqttClient, String] {
   Ok(c)
 }
 
+///|
 /// 发送 DISCONNECT 并关闭连接。写失败时也强制关闭 socket，避免 fd 泄漏。
 pub fn MqttClient::disconnect(self : MqttClient) -> Result[Unit, String] {
   let res = match self.tcp.write(@protocol.encode_disconnect()) {
@@ -593,6 +640,7 @@ pub fn MqttClient::disconnect(self : MqttClient) -> Result[Unit, String] {
   return res
 }
 
+///|
 /// 返回当前在途（尚未完成握手）的 QoS1/2 PUBLISH 的待重放帧序列。
 /// 用于 clean_session=false 的会话恢复：调用方重新建立 TCP + CONNECT 后，
 /// 依次 write 这些帧（QoS1/2 在途 PUBLISH 带 DUP=1），再继续等
@@ -600,13 +648,14 @@ pub fn MqttClient::disconnect(self : MqttClient) -> Result[Unit, String] {
 ///
 /// 帧顺序与在途表插入顺序一致；WaitPubcomp 状态的条目会产出 PUBREL 而非
 /// DUP PUBLISH（见 `session.persistent.replay`）。
-pub fn MqttClient::replay_frames(self : MqttClient) -> Array[Array[Int]] {
+pub fn MqttClient::replay_frames(self : MqttClient) -> Array[Array[Int32]] {
   return @session.replay(self.store[0])
 }
 
+///|
 /// 读一个入站报文并解码。
 pub fn MqttClient::read_packet(
-  self : MqttClient
+  self : MqttClient,
 ) -> Result[@protocol.IncomingPacket, String] {
   match read_frame(self.tcp, read_timeout_ms()) {
     Ok(bytes) => @protocol.decode_packet(bytes)
@@ -616,6 +665,7 @@ pub fn MqttClient::read_packet(
 
 // ---------- 内部 ----------
 
+///|
 /// CONNACK 返回码的人类可读描述。
 fn return_code_desc(code : @protocol.ConnectReturnCode) -> String {
   match code {
@@ -630,11 +680,10 @@ fn return_code_desc(code : @protocol.ConnectReturnCode) -> String {
   }
 }
 
+///|
 /// 从 TCP 读一帧 MQTT 报文：首字节 + 剩余长度变长 + 剩余字节。
-fn read_frame(
-  tcp : &Conn, timeout_ms : Int
-) -> Result[Array[Int], String] {
-  let frame : Array[Int] = []
+fn read_frame(tcp : &Conn, timeout_ms : Int32) -> Result[Array[Int32], String] {
+  let frame : Array[Int32] = []
   // 首字节
   match read_byte(tcp, timeout_ms) {
     Ok(b) => frame.push(b)
@@ -650,7 +699,7 @@ fn read_frame(
       Err(e) => return Err(e)
     }
     frame.push(b)
-    rlen = rlen + ((b & 0x7F) * mult)
+    rlen = rlen + (b & 0x7F) * mult
     if (b & 0x80) == 0 {
       cont = false
     } else {
@@ -687,8 +736,9 @@ fn read_frame(
   return Ok(frame)
 }
 
+///|
 /// 读单字节。
-fn read_byte(tcp : &Conn, timeout_ms : Int) -> Result[Int, String] {
+fn read_byte(tcp : &Conn, timeout_ms : Int32) -> Result[Int32, String] {
   match tcp.wait_read(timeout_ms) {
     Ok(false) => return Err("read timeout")
     Ok(true) => ()
@@ -701,6 +751,7 @@ fn read_byte(tcp : &Conn, timeout_ms : Int) -> Result[Int, String] {
   }
 }
 
+///|
 /// 校验 PUBLISH topic 是否符合 MQTT §3.3.1-3.3.2：
 /// 非空、UTF-8 字节长度 ≤65535、不含 U+0000。
 pub fn validate_publish_topic(topic : String) -> Result[Unit, String] {
@@ -717,6 +768,7 @@ pub fn validate_publish_topic(topic : String) -> Result[Unit, String] {
   Ok(())
 }
 
+///|
 test "validate_publish_topic: accepts normal topics" {
   match validate_publish_topic("sensors/temp") {
     Ok(_) => ()
@@ -728,6 +780,7 @@ test "validate_publish_topic: accepts normal topics" {
   }
 }
 
+///|
 test "validate_publish_topic: rejects empty" {
   match validate_publish_topic("") {
     Ok(_) => fail("expected Err for empty topic")
@@ -735,6 +788,7 @@ test "validate_publish_topic: rejects empty" {
   }
 }
 
+///|
 test "validate_publish_topic: rejects NUL" {
   match validate_publish_topic("abc\u{0000}def") {
     Ok(_) => fail("expected Err for NUL topic")

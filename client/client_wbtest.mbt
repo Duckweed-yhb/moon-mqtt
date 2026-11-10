@@ -16,27 +16,30 @@
 /// 说明：本文件是白盒测试（同一包内），所以能直接用 `Conn` 与 `handshake`，
 /// 不需要 `@client.` 前缀；公开 API 一行没改。
 
+///|
 /// 假连接：按 `in_bytes` 顺序吐入站字节，把写出的每一帧追加到共享数组
 /// `out`（测试用同一个数组断言），`close_count` 记录被关闭的次数。
 priv struct FakeConn {
-  in_bytes : Array[Int]
-  mut pos : Int
-  out : Array[Array[Int]]
-  close_count : Array[Int]
+  in_bytes : Array[Int32]
+  mut pos : Int32
+  out : Array[Array[Int32]]
+  close_count : Array[Int32]
 }
 
-impl Conn for FakeConn with write(self, bytes) {
+///|
+impl Conn for FakeConn with fn write(self, bytes) {
   self.out.push(bytes)
   Ok(())
 }
 
-impl Conn for FakeConn with read_some(self, max) {
+///|
+impl Conn for FakeConn with fn read_some(self, max) {
   let remain = self.in_bytes.length() - self.pos
   if remain <= 0 {
     return Err("EOF")
   }
   let n = if remain < max { remain } else { max }
-  let chunk : Array[Int] = []
+  let chunk : Array[Int32] = []
   let mut i = 0
   while i < n {
     chunk.push(self.in_bytes[self.pos + i])
@@ -46,36 +49,42 @@ impl Conn for FakeConn with read_some(self, max) {
   Ok(chunk)
 }
 
-impl Conn for FakeConn with wait_read(self, timeout_ms) {
+///|
+impl Conn for FakeConn with fn wait_read(self, timeout_ms) {
   ignore(timeout_ms)
   Ok(self.pos < self.in_bytes.length())
 }
 
-impl Conn for FakeConn with close(self) {
+///|
+impl Conn for FakeConn with fn close(self) {
   self.close_count.push(1)
 }
 
 // ---------- 造帧小工具 ----------
 
+///|
 /// CONNACK：`sp` = session_present，`rc` = 返回码。
-fn f_connack(sp : Bool, rc : Int) -> Array[Int] {
+fn f_connack(sp : Bool, rc : Int32) -> Array[Int32] {
   let flag = if sp { 0x01 } else { 0x00 }
   return [0x20, 0x02, flag, rc]
 }
 
+///|
 /// 带 packet_id 的两字节载荷帧（PUBACK 0x40 / PUBREC 0x50 / PUBREL 0x62 / PUBCOMP 0x70）。
-fn f_pid(header : Int, pid : Int) -> Array[Int] {
+fn f_pid(header : Int32, pid : Int32) -> Array[Int32] {
   return [header, 0x02, (pid >> 8) & 0xFF, pid & 0xFF]
 }
 
+///|
 /// SUBACK：`rc` = 0x00 接受 / 0x80 拒绝。
-fn f_suback(pid : Int, rc : Int) -> Array[Int] {
+fn f_suback(pid : Int32, rc : Int32) -> Array[Int32] {
   return [0x90, 0x03, (pid >> 8) & 0xFF, pid & 0xFF, rc]
 }
 
+///|
 /// 拼一个入站脚本。
-fn f_script(parts : Array[Array[Int]]) -> Array[Int] {
-  let s : Array[Int] = []
+fn f_script(parts : Array[Array[Int32]]) -> Array[Int32] {
+  let s : Array[Int32] = []
   for p in parts {
     for b in p {
       s.push(b)
@@ -84,9 +93,12 @@ fn f_script(parts : Array[Array[Int]]) -> Array[Int] {
   return s
 }
 
+///|
 /// 造一个已完成 CONNACK 握手的 client（用接受码 0、session_present=false）。
 fn f_connected(
-  tail : Array[Int], out : Array[Array[Int]], closed : Array[Int]
+  tail : Array[Int32],
+  out : Array[Array[Int32]],
+  closed : Array[Int32],
 ) -> MqttClient raise {
   let script = f_script([f_connack(false, 0), tail])
   let fake : &Conn = FakeConn::{
@@ -95,7 +107,8 @@ fn f_connected(
     out,
     close_count: closed,
   }
-  match handshake(fake, "127.0.0.1", 1883, @protocol.ConnectPacket::new("cli")) {
+  match
+    handshake(fake, "127.0.0.1", 1883, @protocol.ConnectPacket::new("cli")) {
     Ok(c) => c
     Err(e) => fail("handshake failed: " + e)
   }
@@ -103,19 +116,24 @@ fn f_connected(
 
 // ---------- connect ----------
 
+///|
 test "connect sends golden CONNECT frame and reads CONNACK" {
-  let out : Array[Array[Int]] = []
-  let closed : Array[Int] = []
+  let out : Array[Array[Int32]] = []
+  let closed : Array[Int32] = []
   let c = f_connected([], out, closed)
   assert_eq(out.length(), 1)
-  assert_eq(out[0], @protocol.encode_connect(@protocol.ConnectPacket::new("cli")))
-  assert_true(!(c.is_session_present()))
+  assert_eq(
+    out[0],
+    @protocol.encode_connect(@protocol.ConnectPacket::new("cli")),
+  )
+  assert_true(!c.is_session_present())
   assert_eq(closed.length(), 0)
 }
 
+///|
 test "connect reports session_present=true from CONNACK" {
-  let out : Array[Array[Int]] = []
-  let closed : Array[Int] = []
+  let out : Array[Array[Int32]] = []
+  let closed : Array[Int32] = []
   let fake : &Conn = FakeConn::{
     in_bytes: f_connack(true, 0),
     pos: 0,
@@ -128,9 +146,10 @@ test "connect reports session_present=true from CONNACK" {
   }
 }
 
+///|
 test "connect closes socket and reports refused CONNACK" {
-  let out : Array[Array[Int]] = []
-  let closed : Array[Int] = []
+  let out : Array[Array[Int32]] = []
+  let closed : Array[Int32] = []
   let fake : &Conn = FakeConn::{
     in_bytes: f_connack(false, 5),
     pos: 0,
@@ -144,9 +163,10 @@ test "connect closes socket and reports refused CONNACK" {
   assert_eq(closed.length(), 1)
 }
 
+///|
 test "connect rejects a first frame that is not CONNACK" {
-  let out : Array[Array[Int]] = []
-  let closed : Array[Int] = []
+  let out : Array[Array[Int32]] = []
+  let closed : Array[Int32] = []
   let fake : &Conn = FakeConn::{
     in_bytes: [0xD0, 0x00],
     pos: 0,
@@ -160,9 +180,10 @@ test "connect rejects a first frame that is not CONNACK" {
   assert_eq(closed.length(), 1)
 }
 
+///|
 test "connect times out on a half frame instead of hanging" {
-  let out : Array[Array[Int]] = []
-  let closed : Array[Int] = []
+  let out : Array[Array[Int32]] = []
+  let closed : Array[Int32] = []
   let fake : &Conn = FakeConn::{
     in_bytes: [0x20],
     pos: 0,
@@ -178,9 +199,10 @@ test "connect times out on a half frame instead of hanging" {
 
 // ---------- publish ----------
 
+///|
 test "publish qos0 writes and returns without waiting for ack" {
-  let out : Array[Array[Int]] = []
-  let closed : Array[Int] = []
+  let out : Array[Array[Int32]] = []
+  let closed : Array[Int32] = []
   let c = f_connected([], out, closed)
   match c.publish("a/b", [1, 2], @protocol.qos0()) {
     Ok(_) => ()
@@ -191,9 +213,10 @@ test "publish qos0 writes and returns without waiting for ack" {
   assert_eq(out[1][0], 0x30)
 }
 
+///|
 test "publish qos1 records inflight and completes on PUBACK" {
-  let out : Array[Array[Int]] = []
-  let closed : Array[Int] = []
+  let out : Array[Array[Int32]] = []
+  let closed : Array[Int32] = []
   let c = f_connected(f_pid(0x40, 1), out, closed)
   match c.publish("a/b", [1, 2, 3], @protocol.qos1()) {
     Ok(_) => ()
@@ -212,9 +235,10 @@ test "publish qos1 records inflight and completes on PUBACK" {
   }
 }
 
+///|
 test "publish qos1 rejects mismatched PUBACK id" {
-  let out : Array[Array[Int]] = []
-  let closed : Array[Int] = []
+  let out : Array[Array[Int32]] = []
+  let closed : Array[Int32] = []
   let c = f_connected(f_pid(0x40, 9), out, closed)
   match c.publish("a/b", [1], @protocol.qos1()) {
     Ok(_) => fail("expected Err for foreign PUBACK id")
@@ -222,16 +246,26 @@ test "publish qos1 rejects mismatched PUBACK id" {
   }
 }
 
+///|
 test "publish qos1 dispatches inbound publish interleaved before PUBACK" {
-  let out : Array[Array[Int]] = []
-  let closed : Array[Int] = []
+  let out : Array[Array[Int32]] = []
+  let closed : Array[Int32] = []
   let got : Array[String] = []
   let inbound = @protocol.encode_publish(
-    @protocol.PublishPacket::new("sensors/x", [7], @protocol.qos0(), false, false, 0),
+    @protocol.PublishPacket::new(
+      "sensors/x",
+      [7],
+      @protocol.qos0(),
+      false,
+      false,
+      0,
+    ),
   )
   // 脚本：SUBACK(pid 1) → 入站业务 PUBLISH → publish 的 PUBACK（pid 2）
   let c = f_connected(
-    f_script([f_suback(1, 0x00), inbound, f_pid(0x40, 2)]), out, closed,
+    f_script([f_suback(1, 0x00), inbound, f_pid(0x40, 2)]),
+    out,
+    closed,
   )
   let h : SubHandler = fn(topic, payload) {
     ignore(payload)
@@ -250,9 +284,10 @@ test "publish qos1 dispatches inbound publish interleaved before PUBACK" {
   assert_eq(got[0], "sensors/x")
 }
 
+///|
 test "publish qos2 runs the full PUBREC/PUBREL/PUBCOMP handshake" {
-  let out : Array[Array[Int]] = []
-  let closed : Array[Int] = []
+  let out : Array[Array[Int32]] = []
+  let closed : Array[Int32] = []
   let tail = f_script([f_pid(0x50, 1), f_pid(0x70, 1)])
   let c = f_connected(tail, out, closed)
   match c.publish("a/b", [7], @protocol.qos2()) {
@@ -264,12 +299,20 @@ test "publish qos2 runs the full PUBREC/PUBREL/PUBCOMP handshake" {
   assert_eq(out[2], f_pid(0x62, 1)) // PUBREL
 }
 
+///|
 test "publish qos2 answers interleaved qos1 publish while waiting for PUBREC" {
-  let out : Array[Array[Int]] = []
-  let closed : Array[Int] = []
+  let out : Array[Array[Int32]] = []
+  let closed : Array[Int32] = []
   // 入站 QoS1 PUBLISH(pid=8) 先于目标 PUBREC(pid=1)；随后给 PUBCOMP(pid=1) 走完握手
   let inbound = @protocol.encode_publish(
-    @protocol.PublishPacket::new("sensors/x", [7], @protocol.qos1(), false, false, 8),
+    @protocol.PublishPacket::new(
+      "sensors/x",
+      [7],
+      @protocol.qos1(),
+      false,
+      false,
+      8,
+    ),
   )
   let tail = f_script([inbound, f_pid(0x50, 1), f_pid(0x70, 1)])
   let c = f_connected(tail, out, closed)
@@ -284,9 +327,10 @@ test "publish qos2 answers interleaved qos1 publish while waiting for PUBREC" {
   assert_eq(out[3], f_pid(0x62, 1))
 }
 
+///|
 test "publish qos2 answers inbound PUBREL while waiting for PUBCOMP" {
-  let out : Array[Array[Int]] = []
-  let closed : Array[Int] = []
+  let out : Array[Array[Int32]] = []
+  let closed : Array[Int32] = []
   // 先到目标 PUBREC(pid=1)；第二次等待 PUBCOMP 期间先到入站 PUBREL(pid=9)，再到目标 PUBCOMP(pid=1)
   let tail = f_script([f_pid(0x50, 1), f_pid(0x62, 9), f_pid(0x70, 1)])
   let c = f_connected(tail, out, closed)
@@ -301,9 +345,10 @@ test "publish qos2 answers inbound PUBREL while waiting for PUBCOMP" {
   assert_eq(out[3], f_pid(0x70, 9))
 }
 
+///|
 test "publish qos2 rejects PUBACK where PUBREC was expected" {
-  let out : Array[Array[Int]] = []
-  let closed : Array[Int] = []
+  let out : Array[Array[Int32]] = []
+  let closed : Array[Int32] = []
   let c = f_connected(f_pid(0x40, 1), out, closed)
   match c.publish("a/b", [7], @protocol.qos2()) {
     Ok(_) => fail("expected Err for PUBACK in qos2 handshake")
@@ -311,9 +356,10 @@ test "publish qos2 rejects PUBACK where PUBREC was expected" {
   }
 }
 
+///|
 test "publish rejects empty topic before touching the socket" {
-  let out : Array[Array[Int]] = []
-  let closed : Array[Int] = []
+  let out : Array[Array[Int32]] = []
+  let closed : Array[Int32] = []
   let c = f_connected([], out, closed)
   match c.publish("", [1], @protocol.qos1()) {
     Ok(_) => fail("expected Err for empty topic")
@@ -324,9 +370,10 @@ test "publish rejects empty topic before touching the socket" {
 
 // ---------- subscribe ----------
 
+///|
 test "subscribe completes on accepted SUBACK" {
-  let out : Array[Array[Int]] = []
-  let closed : Array[Int] = []
+  let out : Array[Array[Int32]] = []
+  let closed : Array[Int32] = []
   let c = f_connected(f_suback(1, 0x00), out, closed)
   match c.subscribe("a/b", @protocol.qos1()) {
     Ok(_) => ()
@@ -336,9 +383,10 @@ test "subscribe completes on accepted SUBACK" {
   assert_eq(out[1][0], 0x82) // SUBSCRIBE
 }
 
+///|
 test "subscribe reports rejected SUBACK" {
-  let out : Array[Array[Int]] = []
-  let closed : Array[Int] = []
+  let out : Array[Array[Int32]] = []
+  let closed : Array[Int32] = []
   let c = f_connected(f_suback(1, 0x80), out, closed)
   match c.subscribe("a/b", @protocol.qos1()) {
     Ok(_) => fail("expected Err for rejected SUBACK")
@@ -346,9 +394,10 @@ test "subscribe reports rejected SUBACK" {
   }
 }
 
+///|
 test "subscribe prefixes topic errors" {
-  let out : Array[Array[Int]] = []
-  let closed : Array[Int] = []
+  let out : Array[Array[Int32]] = []
+  let closed : Array[Int32] = []
   let c = f_connected([], out, closed)
   match c.subscribe("", @protocol.qos1()) {
     Ok(_) => fail("expected Err for empty topic")
@@ -356,12 +405,20 @@ test "subscribe prefixes topic errors" {
   }
 }
 
+///|
 test "subscribe waits SUBACK while dispatching interleaved QoS1 publish" {
-  let out : Array[Array[Int]] = []
-  let closed : Array[Int] = []
+  let out : Array[Array[Int32]] = []
+  let closed : Array[Int32] = []
   // 等待 SUBACK 期间先到一条 QoS1 业务 PUBLISH(pid=9)，再到目标 SUBACK(pid=1)
   let inbound = @protocol.encode_publish(
-    @protocol.PublishPacket::new("sensors/x", [7], @protocol.qos1(), false, false, 9),
+    @protocol.PublishPacket::new(
+      "sensors/x",
+      [7],
+      @protocol.qos1(),
+      false,
+      false,
+      9,
+    ),
   )
   let c = f_connected(f_script([inbound, f_suback(1, 0x00)]), out, closed)
   match c.subscribe("sensors/#", @protocol.qos1()) {
@@ -376,9 +433,10 @@ test "subscribe waits SUBACK while dispatching interleaved QoS1 publish" {
 
 // ---------- poll ----------
 
+///|
 test "poll_once returns false when nothing arrives" {
-  let out : Array[Array[Int]] = []
-  let closed : Array[Int] = []
+  let out : Array[Array[Int32]] = []
+  let closed : Array[Int32] = []
   let c = f_connected([], out, closed)
   match c.poll_once(1) {
     Ok(true) => fail("expected no frame")
@@ -387,12 +445,19 @@ test "poll_once returns false when nothing arrives" {
   }
 }
 
+///|
 test "poll_once dispatches qos1 publish and acks it" {
-  let out : Array[Array[Int]] = []
-  let closed : Array[Int] = []
+  let out : Array[Array[Int32]] = []
+  let closed : Array[Int32] = []
   let pub_frame = @protocol.encode_publish(
-    @protocol.PublishPacket::new("a/b", [7, 8], @protocol.qos1(), false, false, 0)
-    .with_packet_id(5),
+    @protocol.PublishPacket::new(
+      "a/b",
+      [7, 8],
+      @protocol.qos1(),
+      false,
+      false,
+      0,
+    ).with_packet_id(5),
   )
   let c = f_connected(f_script([f_suback(1, 0x00), pub_frame]), out, closed)
   let got : Array[String] = []
@@ -413,15 +478,21 @@ test "poll_once dispatches qos1 publish and acks it" {
   assert_eq(out[out.length() - 1], f_pid(0x40, 5)) // 自动回 PUBACK
 }
 
+///|
 test "poll_once delivers a duplicate qos2 publish only once" {
-  let out : Array[Array[Int]] = []
-  let closed : Array[Int] = []
+  let out : Array[Array[Int32]] = []
+  let closed : Array[Int32] = []
   let pub_frame = @protocol.encode_publish(
-    @protocol.PublishPacket::new("a/b", [9], @protocol.qos2(), false, false, 0)
-    .with_packet_id(6),
+    @protocol.PublishPacket::new("a/b", [9], @protocol.qos2(), false, false, 0).with_packet_id(
+      6,
+    ),
   )
-  let c = f_connected(f_script([f_suback(1, 0x00), pub_frame, pub_frame]), out, closed)
-  let got : Array[Int] = []
+  let c = f_connected(
+    f_script([f_suback(1, 0x00), pub_frame, pub_frame]),
+    out,
+    closed,
+  )
+  let got : Array[Int32] = []
   let handler : SubHandler = fn(_topic, _payload) { got.push(1) }
   match c.subscribe_with_handler("a/b", @protocol.qos2(), handler) {
     Ok(_) => ()
@@ -438,9 +509,10 @@ test "poll_once delivers a duplicate qos2 publish only once" {
   assert_eq(out[out.length() - 1], f_pid(0x50, 6)) // 两次都回了 PUBREC
 }
 
+///|
 test "poll_once answers inbound PUBREL with PUBCOMP" {
-  let out : Array[Array[Int]] = []
-  let closed : Array[Int] = []
+  let out : Array[Array[Int32]] = []
+  let closed : Array[Int32] = []
   let c = f_connected(f_pid(0x62, 8), out, closed)
   match c.poll_once(1) {
     Ok(true) => ()
@@ -450,9 +522,10 @@ test "poll_once answers inbound PUBREL with PUBCOMP" {
   assert_eq(out[out.length() - 1], f_pid(0x70, 8))
 }
 
+///|
 test "poll_loop sends PINGREQ when keep_alive elapses" {
-  let out : Array[Array[Int]] = []
-  let closed : Array[Int] = []
+  let out : Array[Array[Int32]] = []
+  let closed : Array[Int32] = []
   // keep_alive=60s；两轮 60s 的 poll。脚本里放两帧 PINGRESP：
   // 第一轮 poll 消费一帧，第二轮开头到点发 PINGREQ 后由 ping() 消费另一帧。
   let c = f_connected([0xD0, 0x00, 0xD0, 0x00], out, closed)
@@ -464,9 +537,10 @@ test "poll_loop sends PINGREQ when keep_alive elapses" {
   assert_eq(out[1], [0xC0, 0x00]) // PINGREQ
 }
 
+///|
 test "ping waits PINGRESP while answering interleaved PUBREL with PUBCOMP" {
-  let out : Array[Array[Int]] = []
-  let closed : Array[Int] = []
+  let out : Array[Array[Int32]] = []
+  let closed : Array[Int32] = []
   // 等待 PINGRESP 期间先到一条入站 PUBREL(pid=5)，再到 PINGRESP
   let c = f_connected(f_script([f_pid(0x62, 5), [0xD0, 0x00]]), out, closed)
   match c.ping() {
@@ -481,9 +555,10 @@ test "ping waits PINGRESP while answering interleaved PUBREL with PUBCOMP" {
 
 // ---------- disconnect / 分帧边界 ----------
 
+///|
 test "disconnect writes DISCONNECT and closes the socket" {
-  let out : Array[Array[Int]] = []
-  let closed : Array[Int] = []
+  let out : Array[Array[Int32]] = []
+  let closed : Array[Int32] = []
   let c = f_connected([], out, closed)
   match c.disconnect() {
     Ok(_) => ()
@@ -493,9 +568,10 @@ test "disconnect writes DISCONNECT and closes the socket" {
   assert_eq(closed.length(), 1)
 }
 
+///|
 test "poll_once refuses a frame above the 16MB soft cap" {
-  let out : Array[Array[Int]] = []
-  let closed : Array[Int] = []
+  let out : Array[Array[Int32]] = []
+  let closed : Array[Int32] = []
   // 剩余长度 = 268435455（协议硬上限），超过 16MB 软上限
   let c = f_connected([0x30, 0xFF, 0xFF, 0xFF, 0x7F], out, closed)
   match c.poll_once(1) {
@@ -504,9 +580,10 @@ test "poll_once refuses a frame above the 16MB soft cap" {
   }
 }
 
+///|
 test "poll_once refuses an overflowing remaining length" {
-  let out : Array[Array[Int]] = []
-  let closed : Array[Int] = []
+  let out : Array[Array[Int32]] = []
+  let closed : Array[Int32] = []
   let c = f_connected([0x30, 0xFF, 0xFF, 0xFF, 0xFF, 0x00], out, closed)
   match c.poll_once(1) {
     Ok(_) => fail("expected Err for overflowing remaining length")
@@ -514,9 +591,10 @@ test "poll_once refuses an overflowing remaining length" {
   }
 }
 
+///|
 test "subscribe_with_handler records qos for later resubscribe" {
-  let out : Array[Array[Int]] = []
-  let closed : Array[Int] = []
+  let out : Array[Array[Int32]] = []
+  let closed : Array[Int32] = []
   let c = f_connected(f_suback(1, 0x00), out, closed)
   let h : SubHandler = fn(topic, payload) {
     ignore(topic)

@@ -13,6 +13,6 @@
 supported_targets = "wasm+wasm-gc+js+native"
 
 import {
-  "Duckweed/moon-mqtt/core" @core,
-  "Duckweed/moon-mqtt/protocol" @protocol,
+  "Duckweed/moon-mqtt/core",
+  "Duckweed/moon-mqtt/protocol",
 }

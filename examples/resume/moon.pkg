@@ -16,6 +16,6 @@ supported_targets = "wasm+wasm-gc+js+native"
 pkgtype(kind: "executable")
 
 import {
-  "Duckweed/moon-mqtt/protocol" @protocol,
-  "Duckweed/moon-mqtt/session" @session,
+  "Duckweed/moon-mqtt/protocol",
+  "Duckweed/moon-mqtt/session",
 }

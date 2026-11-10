@@ -1,32 +1,27 @@
+///|
 /// 单测：CONNECT 黄金字节 / CONNACK / QoS0 PUBLISH 往返 / 半包 / 粘包。
 ///
 /// 注：本文件是 _test.mbt，按仓库惯例所有当前包类型加 @core. 前缀，
 /// 跨包类型加 @protocol. 前缀。跨包 enum variant 不能直接构造
 /// （"Cannot create values of the read-only type"），用 match 模式匹配代替 assert_eq。
-
 test "connect golden bytes core-test" {
   let pkt = @protocol.ConnectPacket::new("core-test")
   let bytes = @protocol.encode_connect(pkt)
   // "core-test" = 9 字节，剩余长度 = 可变头(10) + 载荷(2+9=11) = 21 = 0x15
-  assert_eq(
-    bytes,
-    [
-      0x10, 0x15, 0x00, 0x04, 0x4D, 0x51, 0x54, 0x54, 0x04, 0x02, 0x00, 0x3C,
-      0x00, 0x09, 0x63, 0x6F, 0x72, 0x65, 0x2D, 0x74, 0x65, 0x73, 0x74,
-    ],
-  )
+  assert_eq(bytes, [
+    0x10, 0x15, 0x00, 0x04, 0x4D, 0x51, 0x54, 0x54, 0x04, 0x02, 0x00, 0x3C, 0x00,
+    0x09, 0x63, 0x6F, 0x72, 0x65, 0x2D, 0x74, 0x65, 0x73, 0x74,
+  ])
 }
 
+///|
 test "start emits connect frame" {
   let core = @core.ClientCore::new(@protocol.ConnectPacket::new("core-test"))
   let frame = core.start()
-  assert_eq(
-    frame,
-    [
-      0x10, 0x15, 0x00, 0x04, 0x4D, 0x51, 0x54, 0x54, 0x04, 0x02, 0x00, 0x3C,
-      0x00, 0x09, 0x63, 0x6F, 0x72, 0x65, 0x2D, 0x74, 0x65, 0x73, 0x74,
-    ],
-  )
+  assert_eq(frame, [
+    0x10, 0x15, 0x00, 0x04, 0x4D, 0x51, 0x54, 0x54, 0x04, 0x02, 0x00, 0x3C, 0x00,
+    0x09, 0x63, 0x6F, 0x72, 0x65, 0x2D, 0x74, 0x65, 0x73, 0x74,
+  ])
   // 初始状态仍是 Connecting
   match core.state() {
     @core.CoreState::Connecting => ()
@@ -34,6 +29,7 @@ test "start emits connect frame" {
   }
 }
 
+///|
 test "connack transitions to connected" {
   let core = @core.ClientCore::new(@protocol.ConnectPacket::new("core-test"))
   let _ = core.start() // 发出 CONNECT（不校验内容，只推进状态）
@@ -42,14 +38,13 @@ test "connack transitions to connected" {
       assert_eq(events.length(), 1)
       assert_eq(outgoing.length(), 0)
       match events[0] {
-        @core.CoreEvent::ConnackReceived(c) => {
+        @core.CoreEvent::ConnackReceived(c) =>
           // return_code = 0 = ConnectionAccepted（跨包 enum variant 不能直接构造，
           // 用 match 模式匹配代替 assert_eq）
           match c.return_code {
             @protocol.ConnectReturnCode::ConnectionAccepted => ()
             _ => fail("expected ConnectionAccepted")
           }
-        }
         _ => fail("expected ConnackReceived")
       }
       match core.state() {
@@ -60,12 +55,18 @@ test "connack transitions to connected" {
   }
 }
 
+///|
 test "qos0 publish roundtrip" {
   let core = @core.ClientCore::new(@protocol.ConnectPacket::new("core-test"))
   let _ = core.feed([0x20, 0x02, 0x00, 0x00])
   // 构造一个 QoS0 PUBLISH 帧：topic "a/b"、payload [0x01,0x02,0x03]
   let pkt = @protocol.PublishPacket::new(
-    "a/b", [0x01, 0x02, 0x03], @protocol.qos0(), false, false, 0
+    "a/b",
+    [0x01, 0x02, 0x03],
+    @protocol.qos0(),
+    false,
+    false,
+    0,
   )
   let frame = @protocol.encode_publish(pkt)
   match core.feed(frame) {
@@ -84,13 +85,12 @@ test "qos0 publish roundtrip" {
   }
 }
 
+///|
 test "half packet split across two feeds" {
   let core = @core.ClientCore::new(@protocol.ConnectPacket::new("core-test"))
   // 第一次只喂 CONNACK 的固定头 + 剩余长度
   match core.feed([0x20, 0x02]) {
-    (events, _) => {
-      assert_eq(events.length(), 0)
-    }
+    (events, _) => assert_eq(events.length(), 0)
   }
   // 第二次喂完剩余两个字节
   match core.feed([0x00, 0x00]) {
@@ -108,6 +108,7 @@ test "half packet split across two feeds" {
   }
 }
 
+///|
 test "sticky packet two frames in one feed" {
   let core = @core.ClientCore::new(@protocol.ConnectPacket::new("core-test"))
   // 一次喂 CONNACK + PINGRESP 两帧字节
@@ -127,6 +128,7 @@ test "sticky packet two frames in one feed" {
   }
 }
 
+///|
 test "pingreq increments pending_pings and pingresp decrements" {
   let core = @core.ClientCore::new(@protocol.ConnectPacket::new("core-test"))
   assert_eq(core.pending_pings(), 0)
@@ -146,6 +148,7 @@ test "pingreq increments pending_pings and pingresp decrements" {
   }
 }
 
+///|
 test "framer leftover buffer drains on next feed" {
   let f = @core.Framer::new()
   // 半包：CONNACK 固定头 + 剩余长度
@@ -165,6 +168,7 @@ test "framer leftover buffer drains on next feed" {
   assert_eq(f.len(), 0)
 }
 
+///|
 test "framer rejects a reserved packet type instead of buffering forever" {
   let f = @core.Framer::new()
   // 类型 0 是保留值，decode_fixed_header 会报 reserved packet type
@@ -176,6 +180,7 @@ test "framer rejects a reserved packet type instead of buffering forever" {
   assert_eq(f.len(), 0)
 }
 
+///|
 test "framer rejects a remaining length encoded in more than 4 bytes" {
   let f = @core.Framer::new()
   match f.feed([0x30, 0x80, 0x80, 0x80, 0x80, 0x01]) {
@@ -189,19 +194,24 @@ test "framer rejects a remaining length encoded in more than 4 bytes" {
 
 // 构造一条 QoS1 PUBLISH 帧（topic="a/b"，payload=[0x01]，packet_id=7）。
 // 字节 = 固定头(0x32, 0x08) + topic(00 02 61 2F 62) + pid(00 07) + payload(01)
-fn qos1_publish_frame(pid : Int) -> Array[Int] {
+
+///|
+fn qos1_publish_frame(pid : Int32) -> Array[Int32] {
   let qos = @protocol.qos1()
   let pkt = @protocol.PublishPacket::new("a/b", [0x01], qos, false, false, pid)
   return @protocol.encode_publish(pkt)
 }
 
 // 构造一条 QoS2 PUBLISH 帧（topic="a/b"，payload=[0x01]）。
-fn qos2_publish_frame(pid : Int) -> Array[Int] {
+
+///|
+fn qos2_publish_frame(pid : Int32) -> Array[Int32] {
   let qos = @protocol.qos2()
   let pkt = @protocol.PublishPacket::new("a/b", [0x01], qos, false, false, pid)
   return @protocol.encode_publish(pkt)
 }
 
+///|
 test "qos1 publish auto replies puback" {
   let core = @core.ClientCore::new(@protocol.ConnectPacket::new("core-test"))
   // 先 CONNACK 进入 Connected
@@ -224,6 +234,7 @@ test "qos1 publish auto replies puback" {
   }
 }
 
+///|
 test "qos2 publish auto replies pubrec" {
   let core = @core.ClientCore::new(@protocol.ConnectPacket::new("core-test"))
   let _ = core.feed([0x20, 0x02, 0x00, 0x00])
@@ -244,6 +255,7 @@ test "qos2 publish auto replies pubrec" {
   }
 }
 
+///|
 test "pubrel auto replies pubcomp after qos2 publish" {
   let core = @core.ClientCore::new(@protocol.ConnectPacket::new("core-test"))
   let _ = core.feed([0x20, 0x02, 0x00, 0x00])
@@ -260,18 +272,25 @@ test "pubrel auto replies pubcomp after qos2 publish" {
   }
 }
 
+///|
 test "inbound puback clears outbound inflight via session" {
   // 构造一条在途 QoS1 PUBLISH（packet_id=1），注入 core；
   // 然后喂 PUBACK(pid=1)，断言 core 内部 inflight 归零。
   let seed = @protocol.PublishPacket::new(
-    "out/t", [0xAA], @protocol.qos1(), false, false, 0
+    "out/t",
+    [0xAA],
+    @protocol.qos1(),
+    false,
+    false,
+    0,
   )
   match @session.record_outbound(@session.SessionStore::new(), seed) {
     (store, pid) => {
       assert_eq(pid, 1)
       assert_eq(store.inflight_count(), 1)
       let core = @core.ClientCore::with_session(
-        @protocol.ConnectPacket::new("core-test"), store
+        @protocol.ConnectPacket::new("core-test"),
+        store,
       )
       let _ = core.feed([0x20, 0x02, 0x00, 0x00]) // CONNACK
       // 喂 PUBACK(pid=1)
@@ -287,17 +306,24 @@ test "inbound puback clears outbound inflight via session" {
   }
 }
 
+///|
 test "inbound pubrec triggers pubrel for outbound qos2" {
   // 构造一条在途 QoS2 PUBLISH（WaitPubrec 阶段，packet_id=1），注入 core；
   // 收到 broker 回的 PUBREC(pid=1)，应自动产出 PUBREL 出站字节。
   let seed = @protocol.PublishPacket::new(
-    "out/t", [0xAA], @protocol.qos2(), false, false, 0
+    "out/t",
+    [0xAA],
+    @protocol.qos2(),
+    false,
+    false,
+    0,
   )
   match @session.record_outbound(@session.SessionStore::new(), seed) {
     (store, pid) => {
       assert_eq(pid, 1)
       let core = @core.ClientCore::with_session(
-        @protocol.ConnectPacket::new("core-test"), store
+        @protocol.ConnectPacket::new("core-test"),
+        store,
       )
       let _ = core.feed([0x20, 0x02, 0x00, 0x00]) // CONNACK
       // 喂 PUBREC(pid=1)
@@ -314,16 +340,23 @@ test "inbound pubrec triggers pubrel for outbound qos2" {
   }
 }
 
+///|
 test "inbound pubcomp clears outbound qos2 inflight" {
   // 构造一条在途 QoS2 PUBLISH，先 PUBREC 推进到 WaitPubcomp，再喂 PUBCOMP，
   // 断言 inflight 归零。
   let seed = @protocol.PublishPacket::new(
-    "out/t", [0xAA], @protocol.qos2(), false, false, 0
+    "out/t",
+    [0xAA],
+    @protocol.qos2(),
+    false,
+    false,
+    0,
   )
   match @session.record_outbound(@session.SessionStore::new(), seed) {
     (store, pid) => {
       let core = @core.ClientCore::with_session(
-        @protocol.ConnectPacket::new("core-test"), store
+        @protocol.ConnectPacket::new("core-test"),
+        store,
       )
       let _ = core.feed([0x20, 0x02, 0x00, 0x00]) // CONNACK
       let _ = core.feed([0x50, 0x02, 0x00, pid]) // PUBREC → WaitPubcomp
@@ -341,6 +374,7 @@ test "inbound pubcomp clears outbound qos2 inflight" {
 
 // ---------- 断线重连 ----------
 
+///|
 test "on_transport_close moves to disconnected and reconnect_bytes reproduces start" {
   // "ws-spike" = 8 字节 client id → CONNECT 帧总长 = 2 + 10 + 2 + 8 = 22 字节。
   let core = @core.ClientCore::new(@protocol.ConnectPacket::new("ws-spike"))
@@ -369,17 +403,24 @@ test "on_transport_close moves to disconnected and reconnect_bytes reproduces st
   }
 }
 
+///|
 test "reconnect preserves in-flight session and continues qos handshake" {
   // 种子：一条在途 QoS1 PUBLISH（pid=1）注入 core。
   let seed = @protocol.PublishPacket::new(
-    "out/t", [0xAA], @protocol.qos1(), false, false, 0
+    "out/t",
+    [0xAA],
+    @protocol.qos1(),
+    false,
+    false,
+    0,
   )
   match @session.record_outbound(@session.SessionStore::new(), seed) {
     (store, pid) => {
       assert_eq(pid, 1)
       assert_eq(store.inflight_count(), 1)
       let core = @core.ClientCore::with_session(
-        @protocol.ConnectPacket::new("ws-spike"), store
+        @protocol.ConnectPacket::new("ws-spike"),
+        store,
       )
       let _ = core.start() // CONNECT
       let _ = core.feed([0x20, 0x02, 0x00, 0x00]) // 首联 CONNACK → Connected
@@ -421,6 +462,7 @@ test "reconnect preserves in-flight session and continues qos handshake" {
 
 // ---------- 出站 QoS1/2 PUBLISH 完整握手（core.publish 接入 record_outbound） ----------
 
+///|
 test "outbound qos1 publish records inflight and puback clears" {
   // core.publish(qos1) 应自动分配 pid=1、记入 session，
   // 喂 PUBACK(pid=1) 后 inflight 清零。
@@ -444,6 +486,7 @@ test "outbound qos1 publish records inflight and puback clears" {
   assert_eq(core.session().inflight_count(), 0)
 }
 
+///|
 test "outbound qos2 publish full handshake pubrec pubrel pubcomp" {
   // core.publish(qos2) → 自动记录在途；
   // 喂 PUBREC(pid=1) → 自动产出 PUBREL 字节；
@@ -472,6 +515,7 @@ test "outbound qos2 publish full handshake pubrec pubrel pubcomp" {
   assert_eq(core.session().inflight_count(), 0)
 }
 
+///|
 test "reconnect after outbound qos2 publish replays dup publish" {
   // 发 QoS2 PUBLISH 后断线，reconnect_bytes() 保留 session；
   // replay_bytes() 应产出 DUP=1 的 PUBLISH 帧（WaitPubrec 阶段）。
@@ -495,15 +539,14 @@ test "reconnect after outbound qos2 publish replays dup publish" {
   let _ = core.feed([0x20, 0x02, 0x00, 0x00])
   // 喂 PUBREC → 自动 PUBREL
   match core.feed([0x50, 0x02, 0x00, 0x01]) {
-    (_, outgoing) => {
-      assert_eq(outgoing, [0x62, 0x02, 0x00, 0x01])
-    }
+    (_, outgoing) => assert_eq(outgoing, [0x62, 0x02, 0x00, 0x01])
   }
   // 喂 PUBCOMP → 清理
   let _ = core.feed([0x70, 0x02, 0x00, 0x01])
   assert_eq(core.session().inflight_count(), 0)
 }
 
+///|
 test "connack refused stays disconnected" {
   let core = @core.ClientCore::new(@protocol.ConnectPacket::new("core-test"))
   let _ = core.start()
@@ -515,11 +558,17 @@ test "connack refused stays disconnected" {
   }
 }
 
+///|
 test "inbound qos2 duplicate is delivered once" {
   let core = @core.ClientCore::new(@protocol.ConnectPacket::new("core-test"))
   let _ = core.feed([0x20, 0x02, 0x00, 0x00])
   let pkt = @protocol.PublishPacket::new(
-    "a/b", [0x01], @protocol.qos2(), false, false, 7
+    "a/b",
+    [0x01],
+    @protocol.qos2(),
+    false,
+    false,
+    7,
   )
   let frame = @protocol.encode_publish(pkt)
   match core.feed(frame) {
@@ -545,6 +594,7 @@ test "inbound qos2 duplicate is delivered once" {
   }
 }
 
+///|
 test "unknown packet type reports actual type" {
   let core = @core.ClientCore::new(@protocol.ConnectPacket::new("core-test"))
   match core.feed([0xE0, 0x00]) {
@@ -558,6 +608,7 @@ test "unknown packet type reports actual type" {
   }
 }
 
+///|
 test "record subscription stores topic and qos" {
   let core = @core.ClientCore::new(@protocol.ConnectPacket::new("core-test"))
   core.record_subscription("sensors/#", @protocol.qos1())
@@ -566,6 +617,7 @@ test "record subscription stores topic and qos" {
   assert_eq(core.subscriptions().length(), 2)
 }
 
+///|
 test "record same topic updates qos without duplicating" {
   let core = @core.ClientCore::new(@protocol.ConnectPacket::new("core-test"))
   core.record_subscription("a/b", @protocol.qos0())
@@ -578,11 +630,13 @@ test "record same topic updates qos without duplicating" {
   }
 }
 
+///|
 test "resubscribe bytes empty when no subscriptions" {
   let core = @core.ClientCore::new(@protocol.ConnectPacket::new("core-test"))
   assert_eq(core.resubscribe_bytes(), [])
 }
 
+///|
 test "resubscribe bytes encodes subscribe frame" {
   let core = @core.ClientCore::new(@protocol.ConnectPacket::new("core-test"))
   // 先 CONNACK 进 Connected
@@ -599,6 +653,7 @@ test "resubscribe bytes encodes subscribe frame" {
   assert_eq(frame[3], 0x01)
 }
 
+///|
 test "reset session does not clear subscriptions" {
   let core = @core.ClientCore::new(@protocol.ConnectPacket::new("core-test"))
   core.record_subscription("a/b", @protocol.qos1())
@@ -607,6 +662,7 @@ test "reset session does not clear subscriptions" {
   assert_eq(core.subscriptions().length(), 1)
 }
 
+///|
 test "connack session_present false triggers auto resubscribe" {
   let core = @core.ClientCore::new(@protocol.ConnectPacket::new("core-test"))
   core.record_subscription("a/b", @protocol.qos1())
@@ -619,6 +675,7 @@ test "connack session_present false triggers auto resubscribe" {
   }
 }
 
+///|
 test "connack session_present true does not resubscribe" {
   let core = @core.ClientCore::new(@protocol.ConnectPacket::new("core-test"))
   core.record_subscription("a/b", @protocol.qos1())
@@ -628,6 +685,7 @@ test "connack session_present true does not resubscribe" {
   }
 }
 
+///|
 test "connack with no subscriptions produces nothing on resubscribe" {
   let core = @core.ClientCore::new(@protocol.ConnectPacket::new("core-test"))
   // 没记录任何订阅，session_present=0 也不产出重订帧
@@ -640,15 +698,20 @@ test "connack with no subscriptions produces nothing on resubscribe" {
 
 // 构造 SUBACK 帧：pid=1，codes=[0x01]（Success1）。
 // 0x90 固定头，剩余长度 = 2(pid) + 1(code) = 3。
-fn suback_accepted_frame() -> Array[Int] {
+
+///|
+fn suback_accepted_frame() -> Array[Int32] {
   return [0x90, 0x03, 0x00, 0x01, 0x01]
 }
 
 // 构造 SUBACK 帧：pid=1，codes=[0x80]（Failure）。
-fn suback_failure_frame() -> Array[Int] {
+
+///|
+fn suback_failure_frame() -> Array[Int32] {
   return [0x90, 0x03, 0x00, 0x01, 0x80]
 }
 
+///|
 test "suback accepted auto records pending subscribe" {
   // 胶水层发 SUBSCRIBE(pid=1) 登记两个订阅；broker 回 SUBACK accepted，
   // Core 自动把这两条落库，且 pending 表被清空。
@@ -677,6 +740,7 @@ test "suback accepted auto records pending subscribe" {
   assert_eq(core.subscriptions()[1].topic, "cmd/+/light")
 }
 
+///|
 test "suback failure does not record pending subscribe" {
   // SUBACK 带 Failure 码：不落库，pending 条目不清理。
   let core = @core.ClientCore::new(@protocol.ConnectPacket::new("core-test"))
@@ -691,6 +755,7 @@ test "suback failure does not record pending subscribe" {
   assert_eq(core.subscriptions().length(), 0)
 }
 
+///|
 test "suback for unknown pid does not crash" {
   // 没登记过 pid=99 的 SUBSCRIBE，直接收 SUBACK：不应 panic，也不应落库。
   let core = @core.ClientCore::new(@protocol.ConnectPacket::new("core-test"))
@@ -702,6 +767,7 @@ test "suback for unknown pid does not crash" {
   assert_eq(core.subscriptions().length(), 0)
 }
 
+///|
 test "suback accepted clears pending entry so second suback is no-op" {
   // 同一 pid 的 SUBACK 来两次：第一次落库并清表，第二次不再重复落库。
   let core = @core.ClientCore::new(@protocol.ConnectPacket::new("core-test"))

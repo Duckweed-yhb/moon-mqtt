@@ -1,9 +1,9 @@
+///|
 /// examples/pubsub — 最小可运行示例。
 ///
 /// 演示 `protocol` 层：构造一条 QoS1 PUBLISH → 编码成字节 → 解码回读。
 /// 这是 MQTT 客户端最核心的确定性路径，本地即可运行验证。
-
-fn main() -> Unit {
+fn main {
   // 1. 构造一条 QoS1 PUBLISH。
   //    位置参数：topic / payload / qos / retain / dup / packet_id。
   //    qos 经 `qos_from_int` 构造（返回 Option[QoS]，1 = AtLeastOnce）。
@@ -30,8 +30,11 @@ fn main() -> Unit {
   match @protocol.decode_publish(bytes) {
     Ok(d) =>
       println(
-        "decoded: topic=" + d.topic + " payload=" +
-        @debug.Debug::to_repr(d.payload).to_string() + " qos=" +
+        "decoded: topic=" +
+        d.topic +
+        " payload=" +
+        @debug.Debug::to_repr(d.payload).to_string() +
+        " qos=" +
         @protocol.qos_value(d.qos).to_string(),
       )
     Err(e) => println("decode failed: " + e)

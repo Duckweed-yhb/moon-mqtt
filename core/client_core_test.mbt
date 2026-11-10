@@ -957,3 +957,44 @@ test "unsubscribe is rejected before connection or with a bad filter" {
   // 合法调用仍然能发出
   assert_true(core.unsubscribe("a/b").length() > 0)
 }
+
+///|
+/// 退订必须连「还在等 SUBACK 的挂起订阅」一起摘掉。
+///
+/// 竞态场景：subscribe("a/b") 发出后、SUBACK 回来之前就 unsubscribe。
+/// 只清已落库的订阅不够——SUBACK 到达时 commit_pending_subscribe 会把这条
+/// 刚被退订的 topic 补记回本地表，之后重连还会替它重订。
+test "unsubscribe drops a still pending subscribe" {
+  let core = @core.ClientCore::new(@protocol.ConnectPacket::new("core-test"))
+  let _ = core.feed([0x20, 0x02, 0x00, 0x00])
+  let pid = core.allocate_control_packet_id()
+  core.record_outbound_subscribe(pid, [
+    @protocol.Subscription::new("a/b", @protocol.qos1()),
+  ])
+  let _ = core.unsubscribe("a/b")
+  assert_eq(core.subscriptions().length(), 0)
+  // SUBACK 此时才到：不能把 a/b 补记回来。
+  let hi = (pid >> 8) & 0xFF
+  let lo = pid & 0xFF
+  let _ = core.feed([0x90, 0x03, hi, lo, 0x01])
+  assert_eq(core.subscriptions().length(), 0)
+}
+
+///|
+/// 同一帧里的多条订阅：退订其中一条，另一条仍应正常落库。
+test "unsubscribe keeps the sibling subscription in the same frame" {
+  let core = @core.ClientCore::new(@protocol.ConnectPacket::new("core-test"))
+  let _ = core.feed([0x20, 0x02, 0x00, 0x00])
+  let pid = core.allocate_control_packet_id()
+  core.record_outbound_subscribe(pid, [
+    @protocol.Subscription::new("a/b", @protocol.qos1()),
+    @protocol.Subscription::new("c/d", @protocol.qos0()),
+  ])
+  let _ = core.unsubscribe("a/b")
+  let hi = (pid >> 8) & 0xFF
+  let lo = pid & 0xFF
+  let _ = core.feed([0x90, 0x03, hi, lo, 0x01])
+  let subs = core.subscriptions()
+  assert_eq(subs.length(), 1)
+  assert_eq(subs[0].topic, "c/d")
+}

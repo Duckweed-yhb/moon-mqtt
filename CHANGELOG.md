@@ -4,6 +4,14 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- 退订时的竞态：`subscribe` 发出后、SUBACK 还没回来就 `unsubscribe`，`forget_subscription` 只清了已落库的订阅表，挂起的 SUBSCRIBE 仍在；SUBACK 一到 `commit_pending_subscribe` 就把刚退订的 topic 补记回来，之后重连还会替它重订。现在退订同时把该 topic 从 `pending_subscribes` 里摘掉（同帧的其它订阅保留）。
+
+### Changed
+
+- 测试数 134/173 → 139/175（退订竞态、同帧兄弟订阅）。
+
 ### Added
 
 - `browser/unsubscribe`：浏览器层此前只能订阅不能退订（native 与 async 都有）。退订会同步删掉本地订阅表——不删的话重连时的自动重订会把已经退订的 topic 订回来。

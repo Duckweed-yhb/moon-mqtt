@@ -428,6 +428,21 @@ pub fn ClientCore::forget_subscription(
     }
   }
   self.subscriptions = kept
+  // 还在等 SUBACK 的挂起订阅也要摘：否则 SUBACK 一到，
+  // `commit_pending_subscribe` 会把刚退订的 topic 补记回来，退订等于白做。
+  let kept_pending : Array[(Int32, Array[@protocol.Subscription])] = []
+  for entry in self.pending_subscribes {
+    let keep : Array[@protocol.Subscription] = []
+    for sub in entry.1 {
+      if sub.topic != topic {
+        keep.push(sub)
+      }
+    }
+    if keep.length() > 0 {
+      kept_pending.push((entry.0, keep))
+    }
+  }
+  self.pending_subscribes = kept_pending
 }
 
 ///|

@@ -106,19 +106,36 @@ pub fn Suback::all_accepted(self : Suback) -> Bool {
 ///|
 /// 解码 SUBACK。data 为完整报文。
 pub fn decode_suback(data : Array[Int32]) -> Result[Suback, String] {
-  if data.length() < 4 {
+  if data.length() < 5 {
     return Err("suback too short")
   }
   if data[0] != 0x90 {
     return Err("not a suback")
   }
+  // 剩余长度是变长编码：一次订阅很多 topic 时 RL > 127，会占两个字节。
+  // 旧实现直接按「RL 占 1 字节」读 pid，这种帧会被解成错的 packet id。
+  let (rlen, header_end) = match decode_remaining_length(data, 1) {
+    Ok(x) => x
+    Err(e) => return Err(e)
+  }
+  // §3.9：SUBACK 至少包含一个返回码
+  if rlen < 3 {
+    return Err("suback remaining length too small")
+  }
+  if header_end + rlen != data.length() {
+    return Err("suback length mismatch")
+  }
   let r = ByteReader::new(data)
-  match r.read_u16(2) {
+  match r.read_u16(header_end) {
     Err(e) => Err(e)
-    Ok((pid, p)) => {
-      let mut pos = p
+    Ok((pid, after_pid)) => {
+      // §2.3.1：packet identifier 不得为 0
+      if pid == 0 {
+        return Err("suback packet id must be nonzero")
+      }
+      let mut pos = after_pid
       let codes : Array[SubAckCode] = []
-      while pos < data.length() {
+      while pos < header_end + rlen {
         match suback_code_from_int(data[pos]) {
           Some(c) => codes.push(c)
           None => return Err("suback bad code")
@@ -224,4 +241,50 @@ test "unsubscribe roundtrip" {
     Err(e) => fail(e)
   }
   assert_eq(bytes[0], 0xA2)
+}
+
+///|
+/// 剩余长度跨两个字节的 SUBACK：一次订阅很多 topic 时 RL > 127。
+/// 旧实现按「RL 占 1 字节」读 pid，这种帧会被解成错的 packet id。
+test "suback with multi byte remaining length parses correctly" {
+  let pid = 300
+  // 130 个返回码 → RL = 2 + 130 = 132 → 变长编码 0x84 0x01
+  let codes = 130
+  let data : Array[Int32] = [0x90, 0x84, 0x01, (pid >> 8) & 0xFF, pid & 0xFF]
+  let mut i = 0
+  while i < codes {
+    data.push(0x01) // 每个都 granted QoS1
+    i += 1
+  }
+  match decode_suback(data) {
+    Ok(s) => {
+      assert_eq(s.packet_id, pid)
+      assert_eq(s.codes.length(), codes)
+      assert_true(s.all_accepted())
+    }
+    Err(e) => fail("multi-byte RL suback failed: " + e)
+  }
+}
+
+///|
+/// packet id 为 0 的 SUBACK §2.3.1 明确非法。
+test "suback rejects zero packet id" {
+  match decode_suback([0x90, 0x03, 0x00, 0x00, 0x01]) {
+    Ok(_) => fail("zero packet id must be rejected")
+    Err(e) => assert_true(e.contains("must be nonzero"))
+  }
+}
+
+///|
+/// 剩余长度与实际字节数不符：截断帧必须报错，不能把缺的字节当没有。
+test "suback rejects length mismatch" {
+  match decode_suback([0x90, 0x05, 0x00, 0x07, 0x01]) {
+    Ok(_) => fail("truncated suback must be rejected")
+    Err(e) => assert_true(e.contains("length mismatch"))
+  }
+  // 剩余长度小于 3（连 pid 都不够）
+  match decode_suback([0x90, 0x02, 0x00, 0x07]) {
+    Ok(_) => fail("short suback must be rejected")
+    Err(_) => ()
+  }
 }

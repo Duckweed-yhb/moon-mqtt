@@ -199,9 +199,25 @@ pub fn decode_connack(data : Array[Int32]) -> Result[Connack, String] {
     return Err("connack remaining length != 2")
   }
   let ack_flags = data[2]
+  // §3.2.2.1：acknowledge flags 的 bit 7-1 是保留位，必须为 0。
+  if (ack_flags & 0xFE) != 0 {
+    return Err("connack reserved flags must be zero")
+  }
   let session_present = (ack_flags & 0x01) == 1
   match return_code_from_int(data[3]) {
-    Some(rc) => Ok({ session_present, return_code: rc, })
+    Some(rc) => {
+      // §3.2.2.1.2：连接被拒时 session present 必须为 0。
+      match rc {
+        ConnectReturnCode::ConnectionAccepted => ()
+        _ =>
+          if session_present {
+            return Err(
+              "connack session present must be 0 when the connection is refused",
+            )
+          }
+      }
+      Ok({ session_present, return_code: rc, })
+    }
     None => Err("unknown connack return code")
   }
 }
@@ -275,4 +291,32 @@ test "decode_connack invalid" {
       Ok(_) => false
     },
   )
+}
+
+///|
+/// CONNACK 的保留位必须为 0（§3.2.2.1），旧实现只读 bit0。
+test "connack rejects reserved flags" {
+  match decode_connack([0x20, 0x02, 0x02, 0x00]) {
+    Ok(_) => fail("reserved flags must be rejected")
+    Err(e) => assert_true(e.contains("reserved"))
+  }
+  // 正常的接受帧仍然通过
+  match decode_connack([0x20, 0x02, 0x01, 0x00]) {
+    Ok(c) => assert_true(c.session_present)
+    Err(e) => fail(e)
+  }
+}
+
+///|
+/// 连接被拒时 session present 必须为 0（§3.2.2.1.2）。
+test "connack rejects session present on a refused connection" {
+  match decode_connack([0x20, 0x02, 0x01, 0x05]) {
+    Ok(_) => fail("session_present=1 with refusal must be rejected")
+    Err(e) => assert_true(e.contains("session present"))
+  }
+  // 被拒且 session_present=0 是合法的
+  match decode_connack([0x20, 0x02, 0x00, 0x05]) {
+    Ok(c) => assert_true(c.return_code == ConnectReturnCode::NotAuthorized)
+    Err(e) => fail(e)
+  }
 }

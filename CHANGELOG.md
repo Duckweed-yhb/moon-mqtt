@@ -4,6 +4,15 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- `protocol/decode_suback` 处理跨字节的剩余长度：一次订阅很多 topic 时 RL > 127 会占两个字节，旧实现固定按「RL 占 1 字节」读 packet id，这类帧会被解成错的 id（连带着 SUBACK 无法匹配挂起的订阅）。现在用 `decode_remaining_length` 定位可变头，并校验 RL ≥ 3、`header_end + rlen == data.length()`、packet id ≠ 0（§2.3.1）。
+- `protocol/decode_connack` 校验保留位与 session present 一致性：acknowledge flags 的 bit 7-1 必须为 0（§3.2.2.1），连接被拒时 `session_present` 必须为 0（§3.2.2.1.2）；旧实现只读 bit0。
+
+### Changed
+
+- 测试数 187 → 192（多字节 RL 的 SUBACK、零 pid、长度不匹配、CONNACK 保留位、拒绝时的 session flag）。
+
 ### Added
 
 - `protocol/match_test.mbt`：`topic_matches` 的性质测试。固定种子生成 200 组「层级 + 通配符」过滤器，断言四条与取值无关的性质：合法过滤器必匹配其展开出的字面主题、非法过滤器永不匹配、`#` 匹配任意深度但不匹配 `$` 主题、精确过滤器只匹配自己（含空层 `a/` 与 `a` 的区别）。

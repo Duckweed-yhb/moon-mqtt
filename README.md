@@ -251,7 +251,7 @@ sequenceDiagram
 - [x] 浏览器端到端实测：2026-11-04 无头 Chrome（`?autotest=1`），首连订阅、publish QoS1、收消息、强制断开、重连后由 core 自动重订并收到第二次 SUBACK
 - [x] `async/` 非阻塞外观骨架（`AsyncClient`：`feed_bytes` / `drain_pending` / `drain_events` 与 subscribe / unsubscribe / publish / reconnect），真实非阻塞 IO 运行时接入属下阶段
 - [x] 浏览器 MQTT 保活：`browser_tick` 由 JS 每秒驱动，每 `keep_alive/2` 秒发 PINGREQ，连续 3 次无 PINGRESP 主动断开重连
-- [x] `moon test --target wasm-gc` 113/113；`moon test --target native` 144/144
+- [x] `moon test --target wasm-gc` 118/118；`moon test --target native` 151/151
 - [x] `moon check --target js --deny-warn` 通过，0 警告
 - [x] 发布到 mooncakes（0.3.5）
 
@@ -260,8 +260,8 @@ sequenceDiagram
 ```bash
 moon check
 moon check --target js --deny-warn   # 0 警告
-moon test --target wasm-gc           # 113/113
-moon test --target native            # 144/144
+moon test --target wasm-gc           # 118/118
+moon test --target native            # 151/151
 moon run examples/pubsub
 moon run examples/resume
 pwsh scripts/build-demo.ps1          # 浏览器 demo

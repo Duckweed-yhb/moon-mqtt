@@ -2,6 +2,14 @@
 
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 与 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [Unreleased]
+
+### Changed
+
+- `core/` 新增 `next_action`：保活决策（禁用 / 等待 / 发 PINGREQ / 判定死链）抽成纯函数，`browser_tick` 改为调用它；补 5 条单测，覆盖禁用、未到点、到点、连续未应答。
+- `client/` 新增 `plan_resume`：重连的会话语义（清空 / 重放 / 重订）抽成纯函数，`reconnect` 改为按计划执行；补 2 条单测。
+- 测试数 113/144 → 118/151。
+
 ## [0.3.5] - 2026-11-10
 
 ### Fixed

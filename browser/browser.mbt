@@ -292,23 +292,26 @@ pub fn browser_tick(now_ms : Int32) -> Unit {
             Some(o) => o.keep_alive
             None => 60
           }
-          if ka <= 0 {
-            return
-          }
-          if core.pending_pings() >= 3 {
-            println("[browser] keepalive timeout, closing socket")
-            core.on_transport_close()
-            g_core[0] = Some(core)
-            close_ws_ffi()
-            return
-          }
-          if now_ms - g_last_ping_ms[0] >= ka * 1000 / 2 {
-            let bytes = core.pingreq()
-            g_core[0] = Some(core)
-            browser_send(bytes)
-            g_last_ping_ms[0] = now_ms
-          } else {
-            g_core[0] = Some(core)
+          let action = @core.next_action(
+            now_ms,
+            g_last_ping_ms[0],
+            core.pending_pings(),
+            ka,
+          )
+          match action {
+            @core.KeepAliveAction::Close => {
+              println("[browser] keepalive timeout, closing socket")
+              core.on_transport_close()
+              g_core[0] = Some(core)
+              close_ws_ffi()
+            }
+            @core.KeepAliveAction::SendPing => {
+              let bytes = core.pingreq()
+              g_core[0] = Some(core)
+              browser_send(bytes)
+              g_last_ping_ms[0] = now_ms
+            }
+            @core.KeepAliveAction::Wait => g_core[0] = Some(core)
           }
         }
         _ => ()

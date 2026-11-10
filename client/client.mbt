@@ -570,6 +570,30 @@ pub fn MqttClient::poll_loop(
 ///   }
 /// }
 /// ```
+/// 重连时的会话语义决策（纯计算，便于单测）。
+///
+/// MQTT §3.1.2.4：`session_present=1` 说明 broker 保留了会话，客户端应重放在途
+/// 报文、不必重订；`session_present=0` 说明会话已丢，本地在途要清空、订阅要
+/// 重发。把这段判断从 IO 里拆出来，重连路径就不必依赖真实 TCP 才能验证。
+pub struct ResumePlan {
+  /// 是否清空本地在途与入站 QoS2 去重表。
+  reset_session : Bool
+  /// 是否重放出站 QoS1/2 在途帧。
+  replay : Bool
+  /// 是否重发 SUBSCRIBE。
+  resubscribe : Bool
+}
+
+///|
+pub fn plan_resume(session_present : Bool) -> ResumePlan {
+  if session_present {
+    { reset_session: false, replay: true, resubscribe: false, }
+  } else {
+    { reset_session: true, replay: false, resubscribe: true, }
+  }
+}
+
+///|
 pub fn MqttClient::reconnect(self : MqttClient) -> Result[MqttClient, String] {
   let old_store = self.store[0]
   let old_subs = self.subs
@@ -581,13 +605,14 @@ pub fn MqttClient::reconnect(self : MqttClient) -> Result[MqttClient, String] {
     Err(e) => return Err(e)
   }
   c.set_session_store(old_store)
-  let present = c.is_session_present()
+  let plan = plan_resume(c.is_session_present())
   // session_present=false 时 broker 已丢会话，本地在途表必须清空，
   // 否则僵尸条目会在下一次重连被当作待重放帧发给 broker。
-  if !present {
+  if plan.reset_session {
     c.store[0] = @session.SessionStore::new()
     c.inbound_qos2 = []
-  } else {
+  }
+  if plan.replay {
     // 保留旧客户端的入站 QoS2 去重表：重连后 broker 仍可能重发
     // 已派发、但 PUBREL 还没走完的 PUBLISH；丢掉这张表就会重复派发。
     c.inbound_qos2 = old_inbound
@@ -609,7 +634,7 @@ pub fn MqttClient::reconnect(self : MqttClient) -> Result[MqttClient, String] {
   // broker 丢了会话（clean_session=true 或 session_present=false）时，本地
   // 回调还在但 broker 端订阅已经没了，必须重发 SUBSCRIBE，否则重连后一条
   // 消息都收不到。重订帧发出去即可，SUBACK 由后续 poll 消化。
-  if !present {
+  if plan.resubscribe {
     for reg in old_subs {
       let (s0, pid) = @session.alloc_control_packet_id(c.store[0])
       c.store[0] = s0

@@ -611,3 +611,19 @@ test "subscribe_with_handler records qos for later resubscribe" {
     _ => fail("stored qos should be at least once")
   }
 }
+
+///|
+test "plan_resume: session_present replays without resubscribing" {
+  let p = plan_resume(true)
+  assert_true(!p.reset_session)
+  assert_true(p.replay)
+  assert_true(!p.resubscribe)
+}
+
+///|
+test "plan_resume: lost session resets and resubscribes" {
+  let p = plan_resume(false)
+  assert_true(p.reset_session)
+  assert_true(!p.replay)
+  assert_true(p.resubscribe)
+}

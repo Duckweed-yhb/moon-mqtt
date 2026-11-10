@@ -2,6 +2,16 @@
 
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 与 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [Unreleased]
+
+### Fixed
+
+- `browser/publish` 与 `async/publish` 遇到非法 topic 不再静默丢帧：core 会挡下并返回空字节，此前调用方看到「没报错」就以为发出去了。现在编码前先校验，拒绝原因分别走上报回调（`browser.on_error`）与控制台。
+- `browser` 收到拒绝 CONNACK 后标记主动关闭：拒绝码是终局错误，重连配额留着没用；此前 JS 侧还会再重试 3 次。
+
+### Changed
+
+- 测试数 131/165 → 132/166。
 ## [0.3.6] - 2026-11-10
 
 ### Added

@@ -233,3 +233,20 @@ test "malformed frame sets fatal and freezes the client" {
   assert_eq(client.drain_events().length(), 0)
   assert_true(client.state() is @core.CoreState::Connecting)
 }
+
+///|
+/// 非法 topic 不许静默丢帧：core 会挡下并返回空字节，async 侧要报出来。
+test "async publish rejects invalid topic instead of dropping silently" {
+  let client = @async.AsyncClient::new(
+    @protocol.ConnectPacket::new("async-topic"),
+  )
+  let _ = client.drain_pending()
+  client.feed_bytes([0x20, 0x02, 0x00, 0x00])
+  let _ = client.drain_events()
+  // 通配符 topic：编进 PUBLISH 会让 broker 断连，必须本地拒绝。
+  client.publish("sensors/+", [1], @protocol.qos0())
+  assert_eq(client.drain_pending().length(), 0)
+  // 合法 topic 照常入队。
+  client.publish("sensors/temp", [1], @protocol.qos0())
+  assert_true(client.drain_pending().length() > 0)
+}

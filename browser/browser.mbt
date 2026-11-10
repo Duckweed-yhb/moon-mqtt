@@ -199,6 +199,16 @@ pub fn publish(
 ) -> Unit {
   match g_core[0] {
     Some(core) => {
+      // 非法 topic（空串 / 通配符 / NUL）在 core 里会被挡下并返回空字节。
+      // 这里必须先报出来：否则调用方看到「没报错」就以为发出去了，
+      // 而 broker 那头什么也没收到。
+      match @protocol.validate_topic_name(topic) {
+        Ok(_) => ()
+        Err(e) => {
+          report_error("publish rejected: " + e)
+          return
+        }
+      }
       let bytes = core.publish(topic, payload, qos)
       g_core[0] = Some(core)
       browser_send(bytes)
@@ -268,7 +278,8 @@ pub fn browser_on_message(bytes : Array[Int32]) -> Unit {
               }
               @core.DispatchAction::Refused(code) => {
                 // 拒绝码是终局：关 socket 并上报，别让一个「连上了但不通」的
-                // 连接继续跑 keep-alive。
+                // 连接继续跑 keep-alive。同时标记主动关闭，避免 JS 侧再按
+                // 重连配额重试 3 次——认证失败重试多少次都一样。
                 g_core[0] = Some(core)
                 report_error(
                   "CONNACK refused: " +
@@ -277,6 +288,7 @@ pub fn browser_on_message(bytes : Array[Int32]) -> Unit {
                   @core.return_code_byte(code).to_string() +
                   ")",
                 )
+                mark_manual_close_ffi()
                 close_ws_ffi()
                 return
               }

@@ -132,6 +132,15 @@ pub fn AsyncClient::publish(
   payload : Array[Int32],
   qos : @protocol.QoS,
 ) -> Unit {
+  // 非法 topic 会被 core 挡下并返回空字节；不能就这么静默返回，
+  // 否则调用方以为发布成功，broker 那头什么也没收到。
+  match @protocol.validate_topic_name(topic) {
+    Ok(_) => ()
+    Err(e) => {
+      println("[async] publish rejected: " + e)
+      return
+    }
+  }
   let bytes = self.core.publish(topic, payload, qos)
   for b in bytes {
     self.pending.push(b)

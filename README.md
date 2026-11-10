@@ -247,7 +247,7 @@ sequenceDiagram
 - [x] `session/` 会话状态机（QoS2 exactly-once、packet_id 分配、在途持久化）
 - [x] `core/` ClientCore（start/feed、入站 QoS1/2 自动握手、出站 QoS1/2 在途追踪、reconnect、replay）
 - [x] `transport/` native TCP（C FFI，跨平台，read 带超时）
-- [x] `client/` 阻塞式高层 API（poll_loop 自动心跳、reconnect 自动 replay）
+- [x] `client/` 阻塞式高层 API（poll_loop 自动心跳、reconnect 自动 replay、subscribe_with_handler / unsubscribe）
 - [x] `browser/` 浏览器高层 API（connect / connect_persistent / on_connect / on_suback / on_message / subscribe / publish / disconnect）
 - [x] 会话恢复：`core/` 本地订阅表 + `session_present=0` 时自动重订；`browser/` 在 subscribe 时登记待确认订阅，SUBACK 通过后自动落库
 - [x] 浏览器端到端实测：2026-11-04 无头 Chrome（`?autotest=1`），首连订阅、publish QoS1、收消息、强制断开、重连后由 core 自动重订并收到第二次 SUBACK
@@ -255,9 +255,9 @@ sequenceDiagram
 - [x] 浏览器 MQTT 保活：`browser_tick` 由 JS 每秒驱动，每 `keep_alive/2` 秒发 PINGREQ，连续 3 次无 PINGRESP 主动断开重连
 - [x] 事件 → 动作的决策表：`core/plan_event` 把「该不该关连接、该回调谁」做成纯函数，`browser/` 与 `async/` 共用同一张表
 - [x] 主题校验（§4.7）：publish 的 topic name 拒绝空串 / 通配符 / U+0000；subscribe 的过滤器拒绝 `a/#/b`、`a/x+` 这类越界写法；解码侧同样拒绝 broker 发来的非法 topic
-- [x] `moon test --target wasm-gc` 139/139；`moon test --target native` 175/175（js 后端本机缺 node，交给 CI 跑）
+- [x] `moon test --target wasm-gc` 139/139；`moon test --target native` 178/178（js 后端本机缺 node，交给 CI 跑）
 - [x] `moon check --target js --deny-warn` 通过，0 警告
-- [x] 发布到 mooncakes（0.3.11）
+- [x] 发布到 mooncakes（0.3.12）
 
 ## 构建与测试
 
@@ -265,7 +265,7 @@ sequenceDiagram
 moon check
 moon check --target js --deny-warn   # 0 警告
 moon test --target wasm-gc           # 139/139
-moon test --target native            # 175/175
+moon test --target native            # 178/178
 moon run examples/pubsub
 moon run examples/resume
 pwsh scripts/build-demo.ps1          # 浏览器 demo

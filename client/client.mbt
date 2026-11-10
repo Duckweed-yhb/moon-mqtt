@@ -316,6 +316,57 @@ pub fn MqttClient::subscribe(
 }
 
 ///|
+/// 退订一个主题过滤器，等 UNSUBACK 确认，成功后才删本地 handler。
+///
+/// 顺序有意如此：先发帧、等确认，再删本地注册表。先删的话 UNSUBACK 失败
+/// （或超时）会让本地少了 handler、broker 那头却还在推消息——两边状态不一致，
+/// 而且从本地看不出来。
+pub fn MqttClient::unsubscribe(
+  self : MqttClient,
+  topic : String,
+) -> Result[Unit, String] {
+  match @protocol.validate_topic_filter(topic) {
+    Ok(_) => ()
+    Err(e) => return Err("unsubscribe: " + e)
+  }
+  let (s0, pid) = @session.alloc_control_packet_id(self.store[0])
+  self.store[0] = s0
+  if pid == 0 {
+    return Err("out of packet ids")
+  }
+  let pkt = @protocol.UnsubscribePacket::new(pid, [topic])
+  match self.tcp.write(@protocol.encode_unsubscribe(pkt)) {
+    Err(e) => return Err(e)
+    Ok(_) => ()
+  }
+  match self.read_control() {
+    Ok(@protocol.IncomingPacket::Unsuback(id)) if id == pid => {
+      self.forget_handler(topic)
+      Ok(())
+    }
+    Ok(@protocol.IncomingPacket::Unsuback(_)) => Err("UNSUBACK id mismatch")
+    Ok(_) => Err("expected UNSUBACK")
+    Err(e) => Err(e)
+  }
+}
+
+///|
+/// 从本地注册表删掉某个 filter 的 handler（退订成功后调用）。
+fn MqttClient::forget_handler(self : MqttClient, topic : String) -> Unit {
+  let kept : Array[SubscriptionReg] = []
+  for reg in self.subs {
+    if reg.filter != topic {
+      kept.push(reg)
+    }
+  }
+  // `subs` 字段本身不可重绑（它是引用语义的数组），原地改写。
+  self.subs.clear()
+  for reg in kept {
+    self.subs.push(reg)
+  }
+}
+
+///|
 /// 订阅并注册回调：发 SUBSCRIBE 等 SUBACK，成功后把 (filter, handler)
 /// 存进本地注册表。之后调 `poll_once()` 收到匹配的 PUBLISH 时会逐个调用
 /// handler(topic, payload)。同一个 filter 重复订阅会覆盖旧 handler。

@@ -675,3 +675,57 @@ test "partial frame poisons the connection" {
     Err(e) => assert_true(e.contains("desynchronised"))
   }
 }
+
+///|
+/// native 退订：写出 UNSUBSCRIBE(0xA2)，等到匹配的 UNSUBACK 才删本地 handler。
+test "unsubscribe sends UNSUBSCRIBE and drops the handler" {
+  let out : Array[Array[Int32]] = []
+  let closed : Array[Int32] = []
+  // store 的 next_id 从 1 开始，connect 不占 id，所以这次退订拿到的 pid = 1。
+  let c = f_connected([0xB0, 0x02, 0x00, 0x01], out, closed)
+  c.subs.push({
+    filter: "a/b",
+    qos: @protocol.qos1(),
+    handler: fn(_topic, _payload) { () },
+  })
+  match c.unsubscribe("a/b") {
+    Ok(_) => ()
+    Err(e) => fail("unsubscribe failed: " + e)
+  }
+  assert_eq(out.length(), 2) // CONNECT + UNSUBSCRIBE
+  assert_eq(out[1][0], 0xA2)
+  assert_eq(c.subs.length(), 0)
+}
+
+///|
+/// UNSUBACK 的 packet id 对不上：报错，且**不能**删本地 handler
+/// （broker 那头还在推，本地删了就成了静默丢消息）。
+test "unsubscribe keeps the handler when UNSUBACK id mismatches" {
+  let out : Array[Array[Int32]] = []
+  let closed : Array[Int32] = []
+  // 期望 pid=1，故意回 pid=7
+  let c = f_connected([0xB0, 0x02, 0x00, 0x07], out, closed)
+  c.subs.push({
+    filter: "a/b",
+    qos: @protocol.qos1(),
+    handler: fn(_topic, _payload) { () },
+  })
+  match c.unsubscribe("a/b") {
+    Ok(_) => fail("mismatched UNSUBACK should fail")
+    Err(e) => assert_true(e.contains("mismatch"))
+  }
+  assert_eq(c.subs.length(), 1)
+}
+
+///|
+/// 过滤器非法：不发帧、不占 packet id。
+test "unsubscribe rejects an invalid filter before writing" {
+  let out : Array[Array[Int32]] = []
+  let closed : Array[Int32] = []
+  let c = f_connected([], out, closed)
+  match c.unsubscribe("a/#/b") {
+    Ok(_) => fail("invalid filter should fail")
+    Err(e) => assert_true(e.contains("unsubscribe:"))
+  }
+  assert_eq(out.length(), 1) // 只有 CONNECT
+}

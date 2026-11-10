@@ -4,6 +4,17 @@
 
 ## [Unreleased]
 
+### Added
+
+- `client/MqttClient::unsubscribe`：native 阻塞式客户端此前只能订阅、没有退订（`browser` 与 `async` 都有）。现在发 UNSUBSCRIBE 并等匹配的 UNSUBACK，确认后才删本地 handler——先删的话 UNSUBACK 失败会让本地少 handler、broker 那头还在推，两边状态不一致且本地看不出来。UNSUBACK 的 packet id 不匹配时报错且保留 handler。
+
+### Changed
+
+- 测试数 139/175 → 139/178（退订写帧 + 删 handler、UNSUBACK 不匹配保留 handler、非法过滤器不发帧）。
+
+
+## [0.3.11] - 2026-11-11
+
 ### Fixed
 
 - 退订时的竞态：`subscribe` 发出后、SUBACK 还没回来就 `unsubscribe`，`forget_subscription` 只清了已落库的订阅表，挂起的 SUBSCRIBE 仍在；SUBACK 一到 `commit_pending_subscribe` 就把刚退订的 topic 补记回来，之后重连还会替它重订。现在退订同时把该 topic 从 `pending_subscribes` 里摘掉（同帧的其它订阅保留）。
@@ -11,6 +22,8 @@
 ### Changed
 
 - 测试数 134/173 → 139/175（退订竞态、同帧兄弟订阅）。
+
+## [0.3.10] - 2026-11-11
 
 ### Added
 
@@ -20,7 +33,7 @@
 ### Changed
 
 - `async/unsubscribe` 改为调用 `core.unsubscribe`，删掉重复的组帧代码。
-- 测试数 134/170 → 137/173（退订编帧、未知 topic 仍发帧、未连接 / 非法过滤器拒绝）。
+- 计数 134/170 → 137/173（退订编帧、未知 topic 仍发帧、未连接 / 非法过滤器拒绝）。
 
 ## [0.3.9] - 2026-11-11
 

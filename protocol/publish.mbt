@@ -146,6 +146,9 @@ pub fn encode_pubcomp(packet_id : Int) -> Array[Int] {
 }
 
 /// 解码 QoS 控制包，取出 packet_id。
+///
+/// 固定头必须是 `type_byte + Remaining Length(2) + 2 字节 id`，总长 4；
+/// MQTT §2.3.1 规定 packet identifier 必须非零，零值或多余字节按坏帧拒绝。
 pub fn decode_packet_id(data : Array[Int], type_byte : Int) -> Result[Int, String] {
   if data.length() < 4 {
     return Err("packet id packet too short")
@@ -153,10 +156,44 @@ pub fn decode_packet_id(data : Array[Int], type_byte : Int) -> Result[Int, Strin
   if data[0] != type_byte {
     return Err("packet id type mismatch")
   }
+  if data[1] != 2 {
+    return Err("packet id packet bad remaining length")
+  }
+  if data.length() != 4 {
+    return Err("packet id packet has trailing bytes")
+  }
   let r = ByteReader::new(data)
   match r.read_u16(2) {
-    Ok((id, _)) => Ok(id)
+    Ok((id, _)) => {
+      if id == 0 {
+        return Err("packet id must not be zero")
+      }
+      Ok(id)
+    }
     Err(e) => Err(e)
+  }
+}
+
+test "decode_packet_id rejects malformed and zero id" {
+  // Remaining Length 不是 2
+  assert_true(match decode_packet_id([0x40, 0x03, 0x00, 0x01, 0x00], 0x40) {
+    Err(_) => true
+    Ok(_) => false
+  })
+  // packet_id = 0
+  assert_true(match decode_packet_id([0x40, 0x02, 0x00, 0x00], 0x40) {
+    Err(_) => true
+    Ok(_) => false
+  })
+  // 多余字节
+  assert_true(match decode_packet_id([0x40, 0x02, 0x00, 0x07, 0x00], 0x40) {
+    Err(_) => true
+    Ok(_) => false
+  })
+  // 正常
+  match decode_packet_id([0x40, 0x02, 0x00, 0x07], 0x40) {
+    Ok(id) => assert_eq(id, 7)
+    Err(e) => fail(e)
   }
 }
 

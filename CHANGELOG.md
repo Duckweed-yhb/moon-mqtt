@@ -4,9 +4,14 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- `async/AsyncClient::on_transport_close` 清空尚未交给 socket 的待发字节队列：此前断线时未落网的出站字节会被保留，重连后可能夹带到新连接，并与会话重连 `session_present=1` 时由 `replay_bytes()` 产出的 DUP 在途帧重复出站。SessionStore 保留，权威重发仍由 `replay_bytes()` 负责；已收到的入站事件队列不受影响。补 2 条 `async/` 回归用例（Connected 出站 QoS1 排队；断线清空待发队列、重连只发新 CONNECT）。
+
 ### Changed
 
 - 测试数 105/131 → 105/135；`client/` 补 2 条 QoS2 握手插帧回归用例（等 PUBREC 期间消化入站 QoS1 PUBLISH 并回 PUBACK；等 PUBCOMP 期间消化入站 PUBREL 并回 PUBCOMP），`client_wbtest.mbt` 共 27 条。未改动公开 API 与生产逻辑。
+- 测试数 105/135 → 107/137；`async/` 补 2 条回归用例并收敛 `on_transport_close` 待发队列语义；公开 API 签名不变。
 
 ## [0.3.4] - 2026-11-07
 

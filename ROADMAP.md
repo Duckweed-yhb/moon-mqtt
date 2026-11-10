@@ -69,6 +69,12 @@
 - `client/` 补 2 条 QoS2 握手插帧回归用例：等 PUBREC 期间消化入站 QoS1 PUBLISH 并回 PUBACK；等 PUBCOMP 期间消化入站 PUBREL 并回 PUBCOMP；`client_wbtest.mbt` 共 27 条
 - 本轮实测 wasm-gc 105/105、native 135/135；`moon check --target js --deny-warn` 0 警告；改动未发版，并入下一个版本号
 
+### 未发布维护（2026-11-10）
+
+- `async/AsyncClient::on_transport_close` 清空未落网待发字节，避免重连后与 DUP 重放重复出站；SessionStore 权威重发职责不变
+- 补 2 条 `async/` 回归用例（Connected 出站 QoS1 排队；断线清队列且重连仅发新 CONNECT）
+- 本轮实测 wasm-gc 107/107、native 137/137；`moon check --target js --deny-warn` 0 警告；改动未发版，并入下一个版本号
+
 ## 下一阶段（11 月–1 月）
 
 - [ ] MQTT 5.0 基础字段（CONNECT/PUBLISH properties、CONNACK reason code）：11–1 月先做基础字段，完整 5.0 后续评估

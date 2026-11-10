@@ -171,10 +171,16 @@ pub fn AsyncClient::unsubscribe(self : AsyncClient, topic : String) -> Unit {
   self.core.forget_subscription(topic)
 }
 
-/// 通知底层 transport 已断开（对端关闭 / 网络异常），状态切回
-/// Disconnected。SessionStore 保留，供重连后 replay。
+/// 通知底层 transport 已断开（对端关闭 / 网络异常）：
+/// - 状态切回 Disconnected，清空未确认 PINGREQ 计数；
+/// - 清空尚未交给 socket 的待发字节队列：这些字节没有可用连接可写，
+///   若沿带到重连后的新连接，会与 SessionStore 在重连 CONNACK 后按
+///   session_present 产出的 DUP 重放重复出站；
+/// - SessionStore 保留：在途 QoS1/2 的权威重发仍由后续 replay_bytes() 负责；
+/// - events_buf 不清空：已收到的入站事件照常交给应用层消费。
 pub fn AsyncClient::on_transport_close(self : AsyncClient) -> Unit {
   self.core.on_transport_close()
+  self.pending = []
 }
 
 /// 重连：复用同一 ConnectPacket 重新编码 CONNECT，塞进待发队列，

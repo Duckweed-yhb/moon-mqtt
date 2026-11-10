@@ -153,3 +153,36 @@ test "reconnect replays in-flight qos1 when session_present" {
   client.feed_bytes([0x20, 0x02, 0x01, 0x00])
   assert_true(client.drain_pending().length() > 0)
 }
+
+test "publish qos1 queues encoded outbound bytes when connected" {
+  let client = @async.AsyncClient::new(@protocol.ConnectPacket::new("async-test"))
+  let _ = client.drain_pending()
+  // CONNACK Accepted → Connected
+  client.feed_bytes([0x20, 0x02, 0x00, 0x00])
+  let _ = client.drain_events()
+  // Connected 后出站 QoS1 PUBLISH 的编码字节应进入待发队列
+  client.publish("a", [1], @protocol.qos1())
+  let out = client.drain_pending()
+  assert_true(out.length() > 0)
+  // PUBLISH 类型 0x30 | QoS1(0x02) = 0x32
+  assert_eq(out[0], 0x32)
+}
+
+test "transport close discards undrained pending before reconnect" {
+  let client = @async.AsyncClient::new(@protocol.ConnectPacket::new("async-test"))
+  let _ = client.drain_pending()
+  client.feed_bytes([0x20, 0x02, 0x00, 0x00])
+  let _ = client.drain_events()
+  // Connected 后产生出站字节，但刻意不 drain：尚未交给 socket。
+  client.publish("a", [1], @protocol.qos1())
+  // 传输断开：未落网的待发字节应被丢弃，不能沿带到重连后的新连接，
+  // 否则会与后续基于 SessionStore 的 DUP 重放形成重复出站。
+  client.on_transport_close()
+  let dropped = client.drain_pending()
+  assert_eq(dropped.length(), 0)
+  // 重连后的待发序列只能是一条全新 CONNECT（"async-test" 10 字节，帧长 24）。
+  client.reconnect()
+  let fresh = client.drain_pending()
+  assert_eq(fresh[0], 0x10)
+  assert_eq(fresh.length(), 24)
+}

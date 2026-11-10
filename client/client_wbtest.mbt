@@ -528,15 +528,31 @@ test "poll_once answers inbound PUBREL with PUBCOMP" {
 }
 
 ///|
-test "poll_loop sends PINGREQ when keep_alive elapses" {
+test "poll loop counts only idle waits toward keep alive" {
   let out : Array[Array[Int32]] = []
   let closed : Array[Int32] = []
-  // keep_alive=60s；两轮 60s 的 poll。脚本里放两帧 PINGRESP：
-  // 第一轮 poll 消费一帧，第二轮开头到点发 PINGREQ 后由 ping() 消费另一帧。
-  let c = f_connected([0xD0, 0x00, 0xD0, 0x00], out, closed)
+  // keep_alive=60s、两轮 60s 的 poll；第一轮有入站数据（立刻返回），第二轮空等。
+  // 有数据的轮次几乎不耗时，不该计入心跳计时——否则 busy 连接会提前发 PINGREQ。
+  let c = f_connected([0xD0, 0x00], out, closed)
   match c.poll_loop(2, 60000) {
     Ok(_) => ()
     Err(e) => fail(e)
+  }
+  assert_eq(c.last_ping_ms[0], 60000)
+  // 只写了一帧 CONNECT，没有多余的 PINGREQ
+  assert_eq(out.length(), 1)
+}
+
+///|
+test "poll loop pings after a full idle keep alive window" {
+  let out : Array[Array[Int32]] = []
+  let closed : Array[Int32] = []
+  // 两轮都空等 → 第一轮攒满 60s，第二轮开头到点发 PINGREQ。
+  // 脚本里没有 PINGRESP，所以 ping() 会超时返回 Err；这里验证的是「到点就发」。
+  let c = f_connected([], out, closed)
+  match c.poll_loop(2, 60000) {
+    Ok(_) => fail("ping without PINGRESP should fail")
+    Err(e) => assert_true(e.contains("timeout"))
   }
   assert_eq(out.length(), 2)
   assert_eq(out[1], [0xC0, 0x00]) // PINGREQ
@@ -631,4 +647,31 @@ test "plan_resume: lost session resets and resubscribes" {
   assert_true(p.reset_session)
   assert_true(!p.replay)
   assert_true(p.resubscribe)
+}
+
+///|
+/// 读到半帧就失败之后，这条连接必须被标记为「不可再用」。
+///
+/// read_frame 是不带残留缓冲的：超时那一刻已经吃掉的字节找不回来，
+/// 帧边界丢了。若不断开，下一次 read 会把载荷字节当报文头解，
+/// 读出一堆看起来合法的垃圾帧。
+test "partial frame poisons the connection" {
+  let out : Array[Array[Int32]] = []
+  let closed : Array[Int32] = []
+  // PUBLISH(QoS0) 声明 5 字节载荷，实际只给 1 字节
+  let c = f_connected([0x30, 0x05, 0x00], out, closed)
+  match c.read_packet() {
+    Ok(_) => fail("partial frame should not decode")
+    Err(e) => assert_true(e.contains("timeout"))
+  }
+  // 第二次读：快速失败，报清楚原因，而不是继续解垃圾
+  match c.read_packet() {
+    Ok(_) => fail("desynchronised connection must not read")
+    Err(e) => assert_true(e.contains("desynchronised"))
+  }
+  // poll_once 也不能把这条连接当成「只是没数据」
+  match c.poll_once(1000) {
+    Ok(_) => fail("desynchronised connection must not poll as idle")
+    Err(e) => assert_true(e.contains("desynchronised"))
+  }
 }

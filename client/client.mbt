@@ -84,6 +84,9 @@ pub struct MqttClient {
   last_ping_ms : Array[Int32]
   /// 入站 QoS2 尚未收到 PUBREL 的 packet_id，用于重复 PUBLISH 去重。
   mut inbound_qos2 : Array[Int32]
+  /// 读了一半就失败（超时 / 对端关闭）：帧边界已丢，这条连接不能再用。
+  /// 继续读只会把后续字节当成报文头解出垃圾。调用方必须重连。
+  mut desynced : Bool
 }
 
 ///|
@@ -132,7 +135,8 @@ fn handshake(
     Ok(_) => ()
   }
   // 读 CONNACK
-  let connack = match read_frame(tcp, read_timeout_ms()) {
+  let poison = [false]
+  let connack = match read_frame(tcp, read_timeout_ms(), poison) {
     Ok(bytes) =>
       match @protocol.decode_packet(bytes) {
         Ok(@protocol.IncomingPacket::Connack(c)) => c
@@ -173,6 +177,7 @@ fn handshake(
     subs: [],
     last_ping_ms: [0],
     inbound_qos2: [],
+    desynced: false,
   })
 }
 
@@ -459,6 +464,13 @@ pub fn MqttClient::poll_once(
   self : MqttClient,
   timeout_ms : Int32,
 ) -> Result[Bool, String] {
+  // 帧边界已丢的连接不许假装「没数据」：否则调用方会一直 poll 下去，
+  // 以为只是空闲，实际上每次读出来的都是垃圾。
+  if self.desynced {
+    return Err(
+      "connection desynchronised after a partial read, reconnect required",
+    )
+  }
   match self.tcp.wait_read(timeout_ms) {
     Ok(false) => return Ok(false)
     Ok(true) => ()
@@ -547,7 +559,11 @@ pub fn MqttClient::poll_loop(
       }
     }
     match self.poll_once(timeout_ms) {
-      Ok(_) => self.last_ping_ms[0] = self.last_ping_ms[0] + timeout_ms
+      // 只有「真的等满超时、没有任何入站数据」的轮次才算时间流逝。
+      // 一有数据 poll_once 立刻返回，那轮几乎不耗时；把它也按 timeout_ms
+      // 累加，会让 busy 连接上的 PINGREQ 提前几倍发出。
+      Ok(false) => self.last_ping_ms[0] = self.last_ping_ms[0] + timeout_ms
+      Ok(true) => ()
       Err(e) => return Err(e)
     }
   }
@@ -680,12 +696,27 @@ pub fn MqttClient::replay_frames(self : MqttClient) -> Array[Array[Int32]] {
 
 ///|
 /// 读一个入站报文并解码。
+///
+/// 一旦上次读帧读到一半失败（超时 / 对端关闭），这条连接就**不可再用**：
+/// 帧边界已经丢了，继续读会把后续字节当报文头解出垃圾。这里直接报错，
+/// 让调用方重建连接；`reconnect()` 产出的新客户端从干净状态开始。
 pub fn MqttClient::read_packet(
   self : MqttClient,
 ) -> Result[@protocol.IncomingPacket, String] {
-  match read_frame(self.tcp, read_timeout_ms()) {
+  if self.desynced {
+    return Err(
+      "connection desynchronised after a partial read, reconnect required",
+    )
+  }
+  let poison = [false]
+  match read_frame(self.tcp, read_timeout_ms(), poison) {
     Ok(bytes) => @protocol.decode_packet(bytes)
-    Err(e) => Err(e)
+    Err(e) => {
+      if poison[0] {
+        self.desynced = true
+      }
+      Err(e)
+    }
   }
 }
 
@@ -708,7 +739,11 @@ fn return_code_desc(code : @protocol.ConnectReturnCode) -> String {
 
 ///|
 /// 从 TCP 读一帧 MQTT 报文：首字节 + 剩余长度变长 + 剩余字节。
-fn read_frame(tcp : &Conn, timeout_ms : Int32) -> Result[Array[Int32], String] {
+fn read_frame(
+  tcp : &Conn,
+  timeout_ms : Int32,
+  poison : Array[Bool],
+) -> Result[Array[Int32], String] {
   let frame : Array[Int32] = []
   // 首字节
   match read_byte(tcp, timeout_ms) {
@@ -722,7 +757,11 @@ fn read_frame(tcp : &Conn, timeout_ms : Int32) -> Result[Array[Int32], String] {
   while cont {
     let b = match read_byte(tcp, timeout_ms) {
       Ok(x) => x
-      Err(e) => return Err(e)
+      Err(e) => {
+        // 已经吃掉了首字节，帧边界丢失。
+        poison[0] = true
+        return Err(e)
+      }
     }
     frame.push(b)
     rlen = rlen + (b & 0x7F) * mult
@@ -744,9 +783,15 @@ fn read_frame(tcp : &Conn, timeout_ms : Int32) -> Result[Array[Int32], String] {
   while got < rlen {
     let need = rlen - got
     match tcp.wait_read(timeout_ms) {
-      Ok(false) => return Err("read timeout")
+      Ok(false) => {
+        poison[0] = true
+        return Err("read timeout")
+      }
       Ok(true) => ()
-      Err(e) => return Err(e)
+      Err(e) => {
+        poison[0] = true
+        return Err(e)
+      }
     }
     match tcp.read_some(need) {
       Ok(chunk) if chunk.length() > 0 => {
@@ -755,8 +800,14 @@ fn read_frame(tcp : &Conn, timeout_ms : Int32) -> Result[Array[Int32], String] {
         }
         got = got + chunk.length()
       }
-      Ok(_) => return Err("EOF in payload")
-      Err(e) => return Err(e)
+      Ok(_) => {
+        poison[0] = true
+        return Err("EOF in payload")
+      }
+      Err(e) => {
+        poison[0] = true
+        return Err(e)
+      }
     }
   }
   return Ok(frame)

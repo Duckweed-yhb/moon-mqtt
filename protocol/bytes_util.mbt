@@ -28,7 +28,16 @@ pub fn utf8_encode(s : String) -> Array[Int] {
   return out
 }
 
-/// 把字节值数组按 UTF-8 解码为 String。非法序列返回 Err。
+/// 续字节必须是 10xxxxxx。
+fn is_continuation(b : Int) -> Bool {
+  (b & 0xC0) == 0x80
+}
+
+/// 把字节值数组按 UTF-8 解码为 String。
+///
+/// 严格模式：拒绝截断、非法续字节、过长编码（overlong）、代理区码点
+/// （U+D800–U+DFFF）与超出 U+10FFFF 的值。MQTT §1.5.3 要求 topic 与
+/// 字符串字段是合法 UTF-8，宽松解码会把坏帧当正常字符串放过。
 pub fn utf8_decode(data : Array[Int], start : Int, len : Int) -> Result[String, String] {
   let mut sb = ""
   let mut i = start
@@ -48,7 +57,13 @@ pub fn utf8_decode(data : Array[Int], start : Int, len : Int) -> Result[String, 
         return Err("utf8 truncated 2-byte")
       }
       let b1 = data[i + 1]
+      if !is_continuation(b1) {
+        return Err("utf8 invalid continuation")
+      }
       let cp = ((b0 & 0x1F) << 6) | (b1 & 0x3F)
+      if cp < 0x80 {
+        return Err("utf8 overlong 2-byte")
+      }
       sb = sb + char_from_code(cp)
       i = i + 2
     } else if (b0 & 0xF0) == 0xE0 {
@@ -58,7 +73,16 @@ pub fn utf8_decode(data : Array[Int], start : Int, len : Int) -> Result[String, 
       }
       let b1 = data[i + 1]
       let b2 = data[i + 2]
+      if !is_continuation(b1) || !is_continuation(b2) {
+        return Err("utf8 invalid continuation")
+      }
       let cp = ((b0 & 0x0F) << 12) | ((b1 & 0x3F) << 6) | (b2 & 0x3F)
+      if cp < 0x800 {
+        return Err("utf8 overlong 3-byte")
+      }
+      if cp >= 0xD800 && cp <= 0xDFFF {
+        return Err("utf8 surrogate code point")
+      }
       sb = sb + char_from_code(cp)
       i = i + 3
     } else if (b0 & 0xF8) == 0xF0 {
@@ -69,7 +93,17 @@ pub fn utf8_decode(data : Array[Int], start : Int, len : Int) -> Result[String, 
       let b1 = data[i + 1]
       let b2 = data[i + 2]
       let b3 = data[i + 3]
-      let cp = ((b0 & 0x07) << 18) | ((b1 & 0x3F) << 12) | ((b2 & 0x3F) << 6) | (b3 & 0x3F)
+      if !is_continuation(b1) || !is_continuation(b2) || !is_continuation(b3) {
+        return Err("utf8 invalid continuation")
+      }
+      let cp = ((b0 & 0x07) << 18) | ((b1 & 0x3F) << 12) |
+        ((b2 & 0x3F) << 6) | (b3 & 0x3F)
+      if cp < 0x10000 {
+        return Err("utf8 overlong 4-byte")
+      }
+      if cp > 0x10FFFF {
+        return Err("utf8 code point out of range")
+      }
       sb = sb + char_from_code(cp)
       i = i + 4
     } else {
@@ -120,6 +154,29 @@ test "utf8_decode error" {
   })
   // 截断的多字节
   assert_true(match utf8_decode([0xE6], 0, 1) {
+    Err(_) => true
+    Ok(_) => false
+  })
+}
+
+test "utf8_decode rejects overlong, bad continuation, surrogate, out of range" {
+  // overlong：0xC0 0xAF 表示 '/'，最短应是 0x2F
+  assert_true(match utf8_decode([0xC0, 0xAF], 0, 2) {
+    Err(_) => true
+    Ok(_) => false
+  })
+  // 中间夹一个裸续字节
+  assert_true(match utf8_decode([0x41, 0x80, 0x42], 0, 3) {
+    Err(_) => true
+    Ok(_) => false
+  })
+  // 代理区码点 U+D800 = ED A0 80
+  assert_true(match utf8_decode([0xED, 0xA0, 0x80], 0, 3) {
+    Err(_) => true
+    Ok(_) => false
+  })
+  // 超出 U+10FFFF = F4 90 80 80
+  assert_true(match utf8_decode([0xF4, 0x90, 0x80, 0x80], 0, 4) {
     Err(_) => true
     Ok(_) => false
   })

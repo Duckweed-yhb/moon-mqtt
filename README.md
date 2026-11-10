@@ -301,6 +301,7 @@ mosquitto_sub -h 127.0.0.1 -t 'sensors/#' -v
 - **读超时**：单次 socket 读有 5 秒超时（`wait_read`），CONNACK/PUBACK/PINGRESP 等同步等待不会永久挂起；极慢的分段帧仍可能超时返回 Err。
 - **浏览器自动重连上限**：`browser/` 断线后 1 秒重连，**连续失败**最多 3 次；每次连上成功即把计数归零，长期在线不会耗尽配额。连续 3 次失败后刷新页面才会重新建立连接。
 - **`client/` 层测试**：27 条白盒单测（`client/client_wbtest.mbt`），经 `Conn` 接缝注入脚本化假连接，覆盖 CONNECT/CONNACK 各分支、QoS0/1/2 发布握手、SUBACK、poll 派发与 QoS2 去重、自动心跳、断开、分帧上下限、握手等待期间（含 QoS2 等 PUBREC、等 PUBCOMP 两个等待点）的插帧派发（当前实测 wasm-gc 107 / native 137）。native + C FFI 无法在 wasm 后端实例化。
+- **native 重连的入站 QoS2 去重**：`reconnect` 在 `session_present=1` 时保留旧客户端的 `inbound_qos2` 表，避免 broker 重发「已派发、PUBREL 尚未完成」的 PUBLISH 被重复派发；`session_present=0` 时清空。这条路径需要真实 TCP，未纳入假连接单测。
 - **`browser/` 层没有自动测试**：浏览器路径依赖 `extern "js"` 与 WebSocket，只能靠 `docs/demo/` 的手工验证与 `docs/CASES.md` 的 I/O 记录；改 `browser/` 后必须重跑 `scripts/build-demo.ps1` 并手工回归 demo 页。
 - **MQTT 5.0 本期不做**：CONNECT/PUBLISH properties、CONNACK reason code 等基础字段列入 11–1 月维护计划；完整 5.0 与 native TLS 视工具链在 2027 评估（浏览器侧的 TLS 由浏览器负责，不属本项目范围）。
 

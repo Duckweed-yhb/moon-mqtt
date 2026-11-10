@@ -526,6 +526,7 @@ pub fn MqttClient::poll_loop(
 pub fn MqttClient::reconnect(self : MqttClient) -> Result[MqttClient, String] {
   let old_store = self.store[0]
   let old_subs = self.subs
+  let old_inbound = self.inbound_qos2
   // 先关旧 socket，避免每次重连泄漏一个 fd。
   self.tcp.close()
   let c = match connect_opts(self.host, self.port, self.opts) {
@@ -539,6 +540,9 @@ pub fn MqttClient::reconnect(self : MqttClient) -> Result[MqttClient, String] {
     c.store[0] = @session.SessionStore::new()
     c.inbound_qos2 = []
   } else {
+    // 保留旧客户端的入站 QoS2 去重表：重连后 broker 仍可能重发
+    // 已派发、但 PUBREL 还没走完的 PUBLISH；丢掉这张表就会重复派发。
+    c.inbound_qos2 = old_inbound
     let frames = c.replay_frames()
     for f in frames {
       match c.tcp.write(f) {

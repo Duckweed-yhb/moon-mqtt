@@ -105,6 +105,7 @@ fn format_event(e : @core.CoreEvent) -> String {
     @core.CoreEvent::SubackReceived(_) => return "Suback(subscribed to sensors/#)"
     @core.CoreEvent::PingRespReceived => return "PingResp"
     @core.CoreEvent::UnknownPacketType(t) => return "UnknownType(" + t.to_string() + ")"
+    @core.CoreEvent::FramerError(e) => return "FramerError(" + e + ")"
   }
 }
 

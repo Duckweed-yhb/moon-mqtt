@@ -52,6 +52,9 @@ pub enum CoreEvent {
   PingRespReceived
   /// 收到 decode_packet 不认识 / 解不出来的报文。
   UnknownPacketType(Int)
+  /// 帧组装进入不可恢复状态（畸形固定头或缓冲超限），缓冲已清空。
+  /// 收到该事件后调用方应断开连接，不要再继续 feed。
+  FramerError(String)
 }
 
 /// 核心 struct。
@@ -131,9 +134,16 @@ fn append_bytes(out : Array[Int], src : Array[Int]) -> Unit {
 pub fn ClientCore::feed(
   self : ClientCore, bytes : Array[Int]
 ) -> (Array[CoreEvent], Array[Int]) {
-  let frames = self.framer.feed(bytes)
   let events : Array[CoreEvent] = []
   let outgoing : Array[Int] = []
+  let frames = match self.framer.feed(bytes) {
+    Ok(f) => f
+    Err(e) => {
+      // 畸形头 / 缓冲超限：帧组装已不可恢复，上报后由调用方断开。
+      events.push(CoreEvent::FramerError(e))
+      return (events, outgoing)
+    }
+  }
   for frame in frames {
     match @protocol.decode_packet(frame) {
       Err(_) => {

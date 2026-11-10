@@ -297,7 +297,7 @@ mosquitto_sub -h 127.0.0.1 -t 'sensors/#' -v
 - **`transport/` 和 `client/` 仅 native**：依赖 C FFI socket。`protocol/`、`session/`、`core/` 四后端可测；浏览器走 `browser/` + WebSocket 胶水层，已端到端验证。`browser/` 仅 js 后端。
 - **阻塞式 API**：`client/` 是阻塞的，适合 CLI / 边缘遥测；高并发长连接要异步封装。`async/` 目前是非阻塞外观骨架（`AsyncClient` 由调用方驱动 `feed_bytes` / `drain_pending` / `drain_events`），还没有接真实非阻塞 IO 运行时。
 - **同步握手期间收到 PUBLISH（已修，2026-11-07）**：`publish` 等 PUBACK/PUBREC/PUBCOMP、`subscribe` 等 SUBACK、`ping` 等 PINGRESP 的等待统一走 `read_control`，途中到达的业务 PUBLISH 照常按订阅表派发、入站 PUBREL 照常回 PUBCOMP，不再当成「非目标帧」丢弃。10 月轮验收未通过的直接原因就是这条。
-- **坏协议帧卡住缓冲**：`core/Framer` 遇到认不出的帧（剩余长度超 4 字节、保留报文类型等）会把这帧永久留在内部缓冲，后面的帧也就出不来，且不 reset。正常 broker 不会发这种帧；要防对端异常，得在调用方加超时。
+- **坏协议帧（已修，2026-11-10）**：`core/Framer` 现在区分半包与畸形头。畸形头（保留报文类型、剩余长度超 4 字节）或缓冲超过协议最大帧时，清空缓冲并返回 `Err`；`ClientCore::feed` 把它转成 `FramerError` 事件，调用方据此断开连接。半包仍按原语义等下一批字节。
 - **读超时**：单次 socket 读有 5 秒超时（`wait_read`），CONNACK/PUBACK/PINGRESP 等同步等待不会永久挂起；极慢的分段帧仍可能超时返回 Err。
 - **浏览器自动重连上限**：`browser/` 断线后 1 秒重连，**连续失败**最多 3 次；每次连上成功即把计数归零，长期在线不会耗尽配额。连续 3 次失败后刷新页面才会重新建立连接。
 - **`client/` 层测试**：27 条白盒单测（`client/client_wbtest.mbt`），经 `Conn` 接缝注入脚本化假连接，覆盖 CONNECT/CONNACK 各分支、QoS0/1/2 发布握手、SUBACK、poll 派发与 QoS2 去重、自动心跳、断开、分帧上下限、握手等待期间（含 QoS2 等 PUBREC、等 PUBCOMP 两个等待点）的插帧派发（当前实测 wasm-gc 107 / native 137）。native + C FFI 无法在 wasm 后端实例化。

@@ -7,14 +7,18 @@
 /// Framer 内部维护一个残留缓冲，把到齐的完整帧吐出来，剩余字节留在缓冲里
 /// 等下一次 feed。
 ///
-/// 错误语义约定：
-/// - `decode_fixed_header` 返回 Err 时一律视为「半包，等下一批字节」并停止本轮。
-///   这覆盖了最常见的「剩余长度还没到齐」场景。
-/// - 若真的是协议层错误（剩余长度 >4 字节 / 保留报文类型），本帧会一直卡在
-///   缓冲里、永远不会产出——当前不做 fatal-reset，留后续加显式 reset 钩子。
+/// 错误语义：
+/// - 「半包」不算错：固定头不完整、或剩余长度到了但载荷没到齐，都返回
+///   `Ok(已切出的帧)`，剩余字节留着等下一批。
+/// - 「畸形头」是错：保留报文类型、剩余长度超过 4 字节等，返回 `Err`，
+///   同时清空缓冲——否则这一帧会永久卡住，后面的帧再也出不来。
+/// - 缓冲超过协议允许的最大帧（5 字节固定头 + 268435455 载荷）也返回 `Err`。
 ///
 /// 每帧返回的 Array[Int] 都包含完整固定头（第一字节 + 剩余长度变长编码），
 /// 可以直接喂给 `@protocol.decode_packet`。
+
+/// 协议允许的最大帧：固定头最多 5 字节 + 剩余长度上限 268435455。
+let max_frame_bytes = 268435460
 
 pub struct Framer {
   buf : Array[Int]
@@ -34,20 +38,39 @@ pub fn Framer::reset(self : Framer) -> Unit {
   self.buf.clear()
 }
 
+/// 区分「半包」与「畸形头」：`decode_fixed_header` 的两类半包错误。
+fn is_partial(err : String) -> Bool {
+  err == "empty fixed header" || err == "remaining length truncated"
+}
+
 /// 把新字节追加到缓冲，循环尝试切出完整帧，返回完整帧列表。
-pub fn Framer::feed(self : Framer, bytes : Array[Int]) -> Array[Array[Int]] {
+///
+/// 返回 `Err` 表示帧组装进入不可恢复状态（畸形固定头或缓冲超限），
+/// 此时缓冲已清空，调用方应断开连接而不是继续读。
+pub fn Framer::feed(
+  self : Framer, bytes : Array[Int]
+) -> Result[Array[Array[Int]], String] {
   // 追加新字节（Array 是引用语义，push 直接作用于底层数组）
   for b in bytes {
     self.buf.push(b)
+  }
+  if self.buf.length() > max_frame_bytes {
+    self.buf.clear()
+    return Err("framer buffer overflow")
   }
   let frames : Array[Array[Int]] = []
   let mut partial = false
   while !partial && self.buf.length() > 0 {
     match @protocol.decode_fixed_header(self.buf, 0) {
-      Err(_) => {
-        // 半包，等下一批字节。
-        // 真协议错误（>4 字节剩余长度 / 保留类型）会卡住缓冲，后续加 reset。
-        partial = true
+      Err(e) => {
+        if is_partial(e) {
+          // 半包，等下一批字节。
+          partial = true
+        } else {
+          // 畸形头：清空缓冲并上报，避免永久卡死。
+          self.buf.clear()
+          return Err("framer fatal: " + e)
+        }
       }
       Ok((_t, _flags, rlen, header_end)) => {
         let total = header_end + rlen
@@ -74,5 +97,5 @@ pub fn Framer::feed(self : Framer, bytes : Array[Int]) -> Array[Array[Int]] {
       }
     }
   }
-  return frames
+  return Ok(frames)
 }

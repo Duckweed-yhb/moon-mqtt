@@ -149,13 +149,39 @@ test "pingreq increments pending_pings and pingresp decrements" {
 test "framer leftover buffer drains on next feed" {
   let f = @core.Framer::new()
   // 半包：CONNACK 固定头 + 剩余长度
-  let frames1 = f.feed([0x20, 0x02])
+  let frames1 = match f.feed([0x20, 0x02]) {
+    Ok(x) => x
+    Err(e) => fail(e)
+  }
   assert_eq(frames1.length(), 0)
   assert_eq(f.len(), 2)
   // 补全
-  let frames2 = f.feed([0x00, 0x00])
+  let frames2 = match f.feed([0x00, 0x00]) {
+    Ok(x) => x
+    Err(e) => fail(e)
+  }
   assert_eq(frames2.length(), 1)
   assert_eq(frames2[0], [0x20, 0x02, 0x00, 0x00])
+  assert_eq(f.len(), 0)
+}
+
+test "framer rejects a reserved packet type instead of buffering forever" {
+  let f = @core.Framer::new()
+  // 类型 0 是保留值，decode_fixed_header 会报 reserved packet type
+  match f.feed([0x00, 0x02, 0x00, 0x00]) {
+    Ok(_) => fail("expected Err for a reserved packet type")
+    Err(e) => assert_eq(e, "framer fatal: reserved packet type")
+  }
+  // 缓冲已清空，不会把坏帧留给下一次 feed
+  assert_eq(f.len(), 0)
+}
+
+test "framer rejects a remaining length encoded in more than 4 bytes" {
+  let f = @core.Framer::new()
+  match f.feed([0x30, 0x80, 0x80, 0x80, 0x80, 0x01]) {
+    Ok(_) => fail("expected Err for an over-long remaining length")
+    Err(e) => assert_eq(e, "framer fatal: remaining length exceeds 4 bytes")
+  }
   assert_eq(f.len(), 0)
 }
 

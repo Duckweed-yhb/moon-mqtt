@@ -30,10 +30,23 @@ pub fn SubscribePacket::new(
 
 ///|
 /// 编码 SUBSCRIBE 为完整报文（含固定头 0x82）。
+///
+/// 过滤器不合法（`a/#/b`、`a/x+` 这类）会被整条剔除：编进去 broker 只会
+/// 当协议错误断连，调用方还拿不到线索。全部不合法时返回空数组，由调用方
+/// 决定怎么上报（`browser/`、`async/` 都会打印警告）。
 pub fn encode_subscribe(pkt : SubscribePacket) -> Array[Int32] {
+  let valid : Array[Subscription] = []
+  for sub in pkt.subscriptions {
+    if is_valid_topic_filter(sub.topic) {
+      valid.push(sub)
+    }
+  }
+  if valid.length() == 0 {
+    return []
+  }
   let body = ByteWriter::new()
   body.push_u16(pkt.packet_id)
-  for sub in pkt.subscriptions {
+  for sub in valid {
     body.push_string(sub.topic)
     body.push_byte(qos_value(sub.qos))
   }

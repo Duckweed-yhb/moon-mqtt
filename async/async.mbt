@@ -173,6 +173,11 @@ pub fn AsyncClient::subscribe(
     @core.CoreState::Connected => ()
     _ => return
   }
+  // 过滤器不合法时不下发：编进 SUBSCRIBE 只会让 broker 当协议错误断连。
+  match @protocol.validate_topic_filter(topic) {
+    Ok(_) => ()
+    Err(_) => return
+  }
   let pid = self.core.allocate_control_packet_id()
   if pid == 0 {
     return

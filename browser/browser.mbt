@@ -162,6 +162,15 @@ fn report_error(msg : String) -> Unit {
 pub fn subscribe(_client : Client, topic : String, qos : @protocol.QoS) -> Unit {
   match g_core[0] {
     Some(core) => {
+      // 过滤器不合法（'#' 不在最后、'+' 不独占一层）直接拒绝：编进去 broker
+      // 只会当协议错误断连。
+      match @protocol.validate_topic_filter(topic) {
+        Ok(_) => ()
+        Err(e) => {
+          report_error("subscribe rejected: " + e)
+          return
+        }
+      }
       let pid = core.allocate_control_packet_id()
       g_core[0] = Some(core)
       if pid == 0 {

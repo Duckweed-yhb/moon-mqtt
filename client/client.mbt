@@ -281,7 +281,8 @@ pub fn MqttClient::subscribe(
   topic : String,
   qos : @protocol.QoS,
 ) -> Result[Unit, String] {
-  match validate_publish_topic(topic) {
+  // 订阅的是「过滤器」，通配符合法；规则与 publish 的 topic name 不同。
+  match @protocol.validate_topic_filter(topic) {
     Ok(_) => ()
     Err(e) => return Err("subscribe: " + e)
   }
@@ -778,19 +779,24 @@ fn read_byte(tcp : &Conn, timeout_ms : Int32) -> Result[Int32, String] {
 
 ///|
 /// 校验 PUBLISH topic 是否符合 MQTT §3.3.1-3.3.2：
-/// 非空、UTF-8 字节长度 ≤65535、不含 U+0000。
+/// 非空、UTF-8 字节长度 ≤65535、不含 U+0000、不含通配符。
+///
+/// 规则本体在 `@protocol.validate_topic_name`，core / browser / async 共用
+/// 同一份；这里保留旧名字只为不改公共 API。
 pub fn validate_publish_topic(topic : String) -> Result[Unit, String] {
-  let n = @protocol.utf8_encode(topic).length()
-  if n == 0 {
-    return Err("empty topic")
+  @protocol.validate_topic_name(topic)
+}
+
+///|
+test "validate_publish_topic: rejects wildcards" {
+  match validate_publish_topic("sensors/+") {
+    Ok(_) => fail("wildcard topic should be rejected")
+    Err(_) => ()
   }
-  if n > 65535 {
-    return Err("topic too long (>65535 UTF-8 bytes)")
+  match validate_publish_topic("#") {
+    Ok(_) => fail("wildcard topic should be rejected")
+    Err(_) => ()
   }
-  if topic.contains("\u{0000}") {
-    return Err("topic contains NUL")
-  }
-  Ok(())
 }
 
 ///|

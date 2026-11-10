@@ -819,3 +819,58 @@ test "suback accepted clears pending entry so second suback is no-op" {
   let _ = core.feed(suback_accepted_frame())
   assert_eq(core.subscriptions().length(), 1)
 }
+
+///|
+/// 主题合法性守门：带通配符 / 空 topic 的 PUBLISH 不下发，也不进在途表。
+/// 发出去 broker 会当协议错误断连，调用方通常误判成网络问题。
+test "publish rejects wildcard and empty topics" {
+  let core = @core.ClientCore::new(@protocol.ConnectPacket::new("core-test"))
+  let _ = core.feed([0x20, 0x02, 0x00, 0x00])
+  for bad in ["", "a/+", "a/#", "#", "abc\u{0000}def"] {
+    let bytes = core.publish(bad, [0x01], @protocol.qos1())
+    assert_eq(bytes.length(), 0)
+  }
+  // 在途表不应被这些调用污染：合法 publish 仍能拿到非零 packet id。
+  let ok = core.publish("a/b", [0x01], @protocol.qos1())
+  assert_true(ok.length() > 0)
+}
+
+///|
+/// SUBSCRIBE 编码守门：非法过滤器整条剔除，全非法时产空帧而不是畸形帧。
+test "subscribe encoding drops invalid filters" {
+  let bad = @protocol.encode_subscribe(
+    @protocol.SubscribePacket::new(9, [
+      @protocol.Subscription::new("a/#/b", @protocol.qos1()),
+      @protocol.Subscription::new("a/x+", @protocol.qos1()),
+    ]),
+  )
+  assert_eq(bad.length(), 0)
+  let mixed = @protocol.encode_subscribe(
+    @protocol.SubscribePacket::new(9, [
+      @protocol.Subscription::new("a/#/b", @protocol.qos1()),
+      @protocol.Subscription::new("a/+/c", @protocol.qos1()),
+    ]),
+  )
+  // 只剩一条合法订阅：固定头 0x82 + 变长剩余长度 + pid(2) + "a/+/c"(7) + qos(1)
+  assert_true(mixed.length() > 0)
+  assert_eq(mixed[0], 0x82)
+}
+
+///|
+/// 入站 PUBLISH 带通配符属协议错误（§4.7.3）：解码层就拒绝，别交给应用层。
+test "decode rejects wildcard topics from broker" {
+  let pkt = @protocol.PublishPacket::new(
+    "a/+",
+    [0x01],
+    @protocol.qos0(),
+    false,
+    false,
+    0,
+  )
+  // encode_publish 不校验（encoding 是纯映射），这里手工造帧验证解码侧。
+  let frame = @protocol.encode_publish(pkt)
+  match @protocol.decode_packet(frame) {
+    Err(_) => ()
+    Ok(_) => fail("wildcard topic should not decode")
+  }
+}

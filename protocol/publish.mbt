@@ -114,6 +114,12 @@ pub fn decode_publish(data : Array[Int32]) -> Result[PublishPacket, String] {
           match r.read_string(p) {
             Err(e) => Err(e)
             Ok((topic, p2)) => {
+              // §4.7.3：topic name 带通配符或 U+0000 属协议错误，按坏帧拒绝。
+              // 之前直接接受，等于把 broker 的违规报文原样交给应用层。
+              match validate_topic_name(topic) {
+                Ok(_) => ()
+                Err(e) => return Err("publish: " + e)
+              }
               let mut pos = p2
               let mut pid = 0
               if q != QoS::AtMostOnce {

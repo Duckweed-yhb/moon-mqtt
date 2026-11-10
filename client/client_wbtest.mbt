@@ -401,7 +401,12 @@ test "subscribe prefixes topic errors" {
   let c = f_connected([], out, closed)
   match c.subscribe("", @protocol.qos1()) {
     Ok(_) => fail("expected Err for empty topic")
-    Err(e) => assert_eq(e, "subscribe: empty topic")
+    Err(e) => assert_eq(e, "subscribe: empty topic filter")
+  }
+  // 过滤器规则比 topic name 宽：通配符合法，但 '#' 必须收尾。
+  match c.subscribe("a/#/b", @protocol.qos1()) {
+    Ok(_) => fail("expected Err for misplaced '#'")
+    Err(e) => assert_true(e.contains("last level"))
   }
 }
 

@@ -265,6 +265,12 @@ pub fn ClientCore::publish(
     CoreState::Connected => ()
     _ => return []
   }
+  // §3.3.2.1：topic 为空 / 带通配符 / 含 U+0000 时不下发。发出去 broker 会
+  // 当协议错误断连，调用方还以为是网络问题。
+  match @protocol.validate_topic_name(topic) {
+    Ok(_) => ()
+    Err(_) => return []
+  }
   let pkt = @protocol.PublishPacket::new(topic, payload, qos, false, false, 0)
   match qos {
     @protocol.QoS::AtMostOnce => return @protocol.encode_publish(pkt)

@@ -15,14 +15,14 @@ MoonBit 写的 MQTT 3.1.1 客户端。浏览器里走 WebSocket，native 上走 
 需要 [MoonBit 工具链](https://www.moonbitlang.com/)（moon ≥ 0.1.20261012）。浏览器项目用 js 后端，native 用默认后端。
 
 ```bash
-moon add Duckweed/moon-mqtt@0.3.5
+moon add Duckweed/moon-mqtt@0.3.12
 ```
 
 也可以直接写进 `moon.mod`：
 
 ```toml
 import {
-  "Duckweed/moon-mqtt@0.3.5",
+  "Duckweed/moon-mqtt@0.3.12",
 }
 ```
 

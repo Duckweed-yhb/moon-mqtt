@@ -308,4 +308,6 @@ mosquitto_sub -h 127.0.0.1 -t 'sensors/#' -v
 
 MIT © Duckweed-yhb
 
+来源、第三方参考、测试数据与 AI 使用范围见 [`PROVENANCE.md`](PROVENANCE.md)。
+
 API 形状参考 [MQTT.js](https://github.com/mqttjs/MQTT.js)（MIT），协议行为对照 [Eclipse Paho C](https://github.com/eclipse/paho.mqtt.c)（EPL-2.0 / EDL-1.0）。实现依据 OASIS MQTT 3.1.1 规范，源码为 MoonBit 原创重写，不复制上述项目的代码。

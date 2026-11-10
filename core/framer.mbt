@@ -67,9 +67,11 @@ pub fn Framer::feed(
     return Err("framer buffer overflow")
   }
   let frames : Array[Array[Int32]] = []
+  // 用游标读，循环里不搬缓冲；一轮喂进来 N 帧时是 O(n) 而不是 O(n²)。
+  let mut offset = 0
   let mut partial = false
-  while !partial && self.buf.length() > 0 {
-    match @protocol.decode_fixed_header(self.buf, 0) {
+  while !partial && offset < self.buf.length() {
+    match @protocol.decode_fixed_header(self.buf, offset) {
       Err(e) =>
         if is_partial(e) {
           // 半包，等下一批字节。
@@ -80,28 +82,32 @@ pub fn Framer::feed(
           return Err("framer fatal: " + e)
         }
       Ok((_t, _flags, rlen, header_end)) => {
-        let total = header_end + rlen
-        if self.buf.length() < total {
+        let total = header_end - offset + rlen
+        if self.buf.length() - offset < total {
           // 半包：剩余长度已知但可变头 + 载荷还没到齐
           partial = true
         } else {
-          // 切出完整帧
           let frame : Array[Int32] = []
-          for i in 0..<total {
+          for i in offset..<(offset + total) {
             frame.push(self.buf[i])
           }
           frames.push(frame)
-          // 把剩余字节左移回缓冲
-          let remaining : Array[Int32] = []
-          for i in total..<self.buf.length() {
-            remaining.push(self.buf[i])
-          }
-          self.buf.clear()
-          for b in remaining {
-            self.buf.push(b)
-          }
+          offset += total
         }
       }
+    }
+  }
+  // 只搬一次剩余字节。
+  if offset > 0 {
+    let remaining : Array[Int32] = []
+    let mut i = offset
+    while i < self.buf.length() {
+      remaining.push(self.buf[i])
+      i += 1
+    }
+    self.buf.clear()
+    for b in remaining {
+      self.buf.push(b)
     }
   }
   return Ok(frames)

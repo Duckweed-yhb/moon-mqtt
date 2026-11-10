@@ -190,6 +190,44 @@ test "framer rejects a remaining length encoded in more than 4 bytes" {
   assert_eq(f.len(), 0)
 }
 
+///|
+test "framer splits many frames from a single feed" {
+  let f = @core.Framer::new()
+  // 10 条 PINGREQ（0xC0 0x00），一次喂进来
+  let batch : Array[Int32] = []
+  let mut i = 0
+  while i < 10 {
+    batch.push(0xC0)
+    batch.push(0x00)
+    i += 1
+  }
+  match f.feed(batch) {
+    Ok(frames) => assert_eq(frames.length(), 10)
+    Err(e) => fail(e)
+  }
+  assert_eq(f.len(), 0)
+}
+
+///|
+test "framer keeps a trailing half frame after several full ones" {
+  let f = @core.Framer::new()
+  // 两条 PINGREQ + 半条 CONNACK 头
+  let batch : Array[Int32] = [0xC0, 0x00, 0xC0, 0x00, 0x20, 0x02]
+  match f.feed(batch) {
+    Ok(frames) => assert_eq(frames.length(), 2)
+    Err(e) => fail(e)
+  }
+  assert_eq(f.len(), 2)
+  match f.feed([0x00, 0x00]) {
+    Ok(frames) => {
+      assert_eq(frames.length(), 1)
+      assert_eq(frames[0], [0x20, 0x02, 0x00, 0x00])
+    }
+    Err(e) => fail(e)
+  }
+  assert_eq(f.len(), 0)
+}
+
 // ---------- QoS1/2 自动握手 ----------
 
 // 构造一条 QoS1 PUBLISH 帧（topic="a/b"，payload=[0x01]，packet_id=7）。

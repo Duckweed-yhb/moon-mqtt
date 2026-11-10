@@ -15,8 +15,9 @@
 
 ### Changed
 
-- 测试数 105/131 → 105/135；`client/` 补 2 条 QoS2 握手插帧回归用例（等 PUBREC 期间消化入站 QoS1 PUBLISH 并回 PUBACK；等 PUBCOMP 期间消化入站 PUBREL 并回 PUBCOMP），`client_wbtest.mbt` 共 27 条。未改动公开 API 与生产逻辑。
-- 测试数 105/135 → 111/142；`async/` 补 2 条回归用例并收敛 `on_transport_close` 待发队列语义；`client/` 补重订阅 QoS 用例，`protocol/` 补严格 UTF-8 与 packet-id 校验用例，`core/` 补 Framer 畸形帧用例；公开 API 签名不变。
+- `core/Framer::feed` 改用游标读缓冲、最后只裁剪一次：一轮喂进 N 帧时从 O(n²) 降到 O(n)。补「一次 feed 多帧」与「整帧 + 半帧混合」两条用例。
+- 测试数 105/131 → 105/135；`client/` 补 2 条 QoS2 握手插帧回归用例（等 PUBREC 期间消化入站 QoS1 PUBLISH 并回 PUBACK；等 PUBCOMP 期间消化入站 PUBREL 并回 PUBCOMP），`client_wbtest.mbt` 共 28 条。未改动公开 API 与生产逻辑。
+- 测试数 105/135 → 113/144；`async/` 补 2 条回归用例并收敛 `on_transport_close` 待发队列语义；`client/` 补重订阅 QoS 用例，`protocol/` 补严格 UTF-8 与 packet-id 校验用例，`core/` 补 Framer 畸形帧与多帧切分用例；公开 API 签名不变。
 
 ## [0.3.4] - 2026-11-07
 

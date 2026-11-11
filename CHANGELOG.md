@@ -4,6 +4,10 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- `client/handshake` 等待 CONNACK 此前仍用默认 5 秒超时，忽略 `connect_opts_with_timeout` 传入并归一后的超时；握手读现在也用该超时，与「读超时贯穿握手」的声明一致。回归由 `FakeConn` 记录每次 `wait_read` 收到的超时值，覆盖显式 1234 与非正回退 5000 两条分支。
+
 ## [0.3.14] - 2026-11-11
 
 ### Added

@@ -108,7 +108,13 @@ fn f_connected(
     close_count: closed,
   }
   match
-    handshake(fake, "127.0.0.1", 1883, @protocol.ConnectPacket::new("cli")) {
+    handshake(
+      fake,
+      "127.0.0.1",
+      1883,
+      @protocol.ConnectPacket::new("cli"),
+      read_timeout_ms(),
+    ) {
     Ok(c) => c
     Err(e) => fail("handshake failed: " + e)
   }
@@ -140,7 +146,14 @@ test "connect reports session_present=true from CONNACK" {
     out,
     close_count: closed,
   }
-  match handshake(fake, "h", 1883, @protocol.ConnectPacket::new("cli")) {
+  match
+    handshake(
+      fake,
+      "h",
+      1883,
+      @protocol.ConnectPacket::new("cli"),
+      read_timeout_ms(),
+    ) {
     Ok(c) => assert_true(c.is_session_present())
     Err(e) => fail(e)
   }
@@ -156,7 +169,14 @@ test "connect closes socket and reports refused CONNACK" {
     out,
     close_count: closed,
   }
-  match handshake(fake, "h", 1883, @protocol.ConnectPacket::new("cli")) {
+  match
+    handshake(
+      fake,
+      "h",
+      1883,
+      @protocol.ConnectPacket::new("cli"),
+      read_timeout_ms(),
+    ) {
     Ok(_) => fail("expected Err for refused CONNACK")
     Err(e) => assert_eq(e, "CONNACK refused: not authorized")
   }
@@ -173,7 +193,14 @@ test "connect rejects a first frame that is not CONNACK" {
     out,
     close_count: closed,
   }
-  match handshake(fake, "h", 1883, @protocol.ConnectPacket::new("cli")) {
+  match
+    handshake(
+      fake,
+      "h",
+      1883,
+      @protocol.ConnectPacket::new("cli"),
+      read_timeout_ms(),
+    ) {
     Ok(_) => fail("expected Err for PINGRESP as first frame")
     Err(e) => assert_eq(e, "expected CONNACK")
   }
@@ -190,7 +217,14 @@ test "connect times out on a half frame instead of hanging" {
     out,
     close_count: closed,
   }
-  match handshake(fake, "h", 1883, @protocol.ConnectPacket::new("cli")) {
+  match
+    handshake(
+      fake,
+      "h",
+      1883,
+      @protocol.ConnectPacket::new("cli"),
+      read_timeout_ms(),
+    ) {
     Ok(_) => fail("expected Err for half frame")
     Err(e) => assert_eq(e, "read timeout")
   }
@@ -728,4 +762,36 @@ test "unsubscribe rejects an invalid filter before writing" {
     Err(e) => assert_true(e.contains("unsubscribe:"))
   }
   assert_eq(out.length(), 1) // 只有 CONNECT
+}
+
+///|
+/// 读超时必须真的被记住并用在后续读上：默认 5 秒，显式指定时按指定值。
+test "read timeout is configurable and defaults to five seconds" {
+  let out : Array[Array[Int32]] = []
+  let closed : Array[Int32] = []
+  let fake : &Conn = FakeConn::{
+    in_bytes: f_script([f_connack(false, 0)]),
+    pos: 0,
+    out,
+    close_count: closed,
+  }
+  let c = match
+    handshake(fake, "h", 1883, @protocol.ConnectPacket::new("cli"), 1234) {
+    Ok(c) => c
+    Err(e) => fail(e)
+  }
+  assert_eq(c.read_timeout(), 1234)
+  // 非正超时回退默认值（5000），而不是「每次读立刻超时」
+  let fake2 : &Conn = FakeConn::{
+    in_bytes: f_script([f_connack(false, 0)]),
+    pos: 0,
+    out: [],
+    close_count: [],
+  }
+  let c2 = match
+    handshake(fake2, "h", 1883, @protocol.ConnectPacket::new("cli"), 0) {
+    Ok(c) => c
+    Err(e) => fail(e)
+  }
+  assert_eq(c2.read_timeout(), 5000)
 }

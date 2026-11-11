@@ -4,6 +4,14 @@
 
 ## [Unreleased]
 
+### Added
+
+- `client/connect_opts_with_timeout` 与 `connect_with_conn_timeout`：读超时从写死 5 秒改为可配置（`<= 0` 回退默认）。跨公网、大报文体、broker 回包慢时，5 秒会把连接误判成超时并标成 `desynced`（帧边界已丢、只能重连）。`MqttClient::read_timeout()` 返回当前值便于核对。
+
+### Changed
+
+- 读超时字段贯穿握手与后续读：`handshake` 多一个超时参数，`read_packet` 用实例字段而不是全局常量。测试数 192 → 193。
+
 ### Fixed
 
 - `protocol/decode_suback` 处理跨字节的剩余长度：一次订阅很多 topic 时 RL > 127 会占两个字节，旧实现固定按「RL 占 1 字节」读 packet id，这类帧会被解成错的 id（连带着 SUBACK 无法匹配挂起的订阅）。现在用 `decode_remaining_length` 定位可变头，并校验 RL ≥ 3、`header_end + rlen == data.length()`、packet id ≠ 0（§2.3.1）。

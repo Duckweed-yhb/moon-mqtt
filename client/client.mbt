@@ -87,6 +87,8 @@ pub struct MqttClient {
   /// 读了一半就失败（超时 / 对端关闭）：帧边界已丢，这条连接不能再用。
   /// 继续读只会把后续字节当成报文头解出垃圾。调用方必须重连。
   mut desynced : Bool
+  /// 单次 socket 读的超时（毫秒）。默认 5 秒，可由 connect_opts_with_timeout 覆盖。
+  read_timeout_ms : Int32
 }
 
 ///|
@@ -111,7 +113,31 @@ pub fn connect_opts(
     Ok(t) => t
     Err(e) => return Err(e)
   }
-  handshake(tcp, host, port, pkt)
+  handshake(tcp, host, port, pkt, read_timeout_ms())
+}
+
+///|
+/// 同 `connect_opts`，但可指定单次 socket 读的超时（毫秒）。
+///
+/// 默认 5 秒对局域网足够；跨公网、大报文体、或 broker 回包慢的场景需要放宽。
+/// `timeout_ms <= 0` 时回退到默认值。
+pub fn connect_opts_with_timeout(
+  host : String,
+  port : Int32,
+  pkt : @protocol.ConnectPacket,
+  timeout_ms : Int32,
+) -> Result[MqttClient, String] {
+  let tcp = match @transport.connect(host, port) {
+    Ok(t) => t
+    Err(e) => return Err(e)
+  }
+  handshake(tcp, host, port, pkt, timeout_ms)
+}
+
+///|
+/// 当前连接使用的读超时（毫秒），供调用方核对与日志。
+pub fn MqttClient::read_timeout(self : MqttClient) -> Int32 {
+  self.read_timeout_ms
 }
 
 ///|
@@ -126,7 +152,7 @@ pub fn connect_with_conn(
   port : Int32,
   pkt : @protocol.ConnectPacket,
 ) -> Result[MqttClient, String] {
-  handshake(tcp, host, port, pkt)
+  handshake(tcp, host, port, pkt, read_timeout_ms())
 }
 
 ///|
@@ -140,7 +166,10 @@ fn handshake(
   host : String,
   port : Int32,
   pkt : @protocol.ConnectPacket,
+  timeout_ms : Int32,
 ) -> Result[MqttClient, String] {
+  // 非正超时回退默认值，避免每次读立刻超时。
+  let timeout_ms = if timeout_ms > 0 { timeout_ms } else { read_timeout_ms() }
   // 发 CONNECT
   match tcp.write(@protocol.encode_connect(pkt)) {
     Err(e) => {
@@ -187,6 +216,7 @@ fn handshake(
     opts: pkt,
     client_id: pkt.client_id,
     keep_alive: pkt.keep_alive,
+    read_timeout_ms: timeout_ms,
     store: [@session.SessionStore::new()],
     session_present: [connack.session_present],
     subs: [],
@@ -775,7 +805,7 @@ pub fn MqttClient::read_packet(
     )
   }
   let poison = [false]
-  match read_frame(self.tcp, read_timeout_ms(), poison) {
+  match read_frame(self.tcp, self.read_timeout_ms, poison) {
     Ok(bytes) => @protocol.decode_packet(bytes)
     Err(e) => {
       if poison[0] {

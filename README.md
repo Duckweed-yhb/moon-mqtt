@@ -256,7 +256,7 @@ sequenceDiagram
 - [x] 浏览器 MQTT 保活：`browser_tick` 由 JS 每秒驱动，每 `keep_alive/2` 秒发 PINGREQ，连续 3 次无 PINGRESP 主动断开重连
 - [x] 事件 → 动作的决策表：`core/plan_event` 把「该不该关连接、该回调谁」做成纯函数，`browser/` 与 `async/` 共用同一张表
 - [x] 主题校验（§4.7）：publish 的 topic name 拒绝空串 / 通配符 / U+0000；subscribe 的过滤器拒绝 `a/#/b`、`a/x+` 这类越界写法；解码侧同样拒绝 broker 发来的非法 topic
-- [x] `moon test --target wasm-gc` 153/153；`moon test --target native` 192/192（js 后端本机缺 node，交给 CI 跑）
+- [x] `moon test --target wasm-gc` 153/153；`moon test --target native` 193/193（js 后端本机缺 node，交给 CI 跑）
 - [x] `moon check --target js --deny-warn` 通过，0 警告
 - [x] 发布到 mooncakes（0.3.13）
 
@@ -266,7 +266,7 @@ sequenceDiagram
 moon check
 moon check --target js --deny-warn   # 0 警告
 moon test --target wasm-gc           # 153/153
-moon test --target native            # 192/192
+moon test --target native            # 193/193
 moon run examples/pubsub
 moon run examples/resume
 pwsh scripts/build-demo.ps1          # 浏览器 demo
@@ -303,7 +303,7 @@ mosquitto_sub -h 127.0.0.1 -t 'sensors/#' -v
 - **阻塞式 API**：`client/` 是阻塞的，适合 CLI / 边缘遥测；高并发长连接要异步封装。`async/` 目前是非阻塞外观骨架（`AsyncClient` 由调用方驱动 `feed_bytes` / `drain_pending` / `drain_events`），还没有接真实非阻塞 IO 运行时。
 - **同步握手期间收到 PUBLISH（已修，2026-11-07）**：`publish` 等 PUBACK/PUBREC/PUBCOMP、`subscribe` 等 SUBACK、`ping` 等 PINGRESP 的等待统一走 `read_control`，途中到达的业务 PUBLISH 照常按订阅表派发、入站 PUBREL 照常回 PUBCOMP，不再当成「非目标帧」丢弃。10 月轮验收未通过的直接原因就是这条。
 - **坏协议帧（已修，2026-11-10）**：`core/Framer` 现在区分半包与畸形头。畸形头（保留报文类型、剩余长度超 4 字节）或缓冲超过协议最大帧时，清空缓冲并返回 `Err`；`ClientCore::feed` 把它转成 `FramerError` 事件，调用方据此断开连接。半包仍按原语义等下一批字节。
-- **读超时**：单次 socket 读有 5 秒超时（`wait_read`），CONNACK/PUBACK/PINGRESP 等同步等待不会永久挂起；极慢的分段帧仍可能超时返回 Err。
+- **读超时**：单次 socket 读默认 5 秒（`wait_read`），CONNACK/PUBACK/PINGRESP 等同步等待不会永久挂起。跨公网 / 大报文体 / broker 回包慢时用 `connect_opts_with_timeout` 或 `connect_with_conn_timeout` 放宽；读超时会把连接标成 `desynced`（帧边界已丢），只能重连，所以宁可设宽一些。
 - **浏览器自动重连上限**：`browser/` 断线后 1 秒重连，**连续失败**最多 3 次；每次连上成功即把计数归零，长期在线不会耗尽配额。连续 3 次失败后刷新页面才会重新建立连接。
 - **`client/` 层测试**：28 条白盒单测（`client/client_wbtest.mbt`），经 `Conn` 接缝注入脚本化假连接，覆盖 CONNECT/CONNACK 各分支、QoS0/1/2 发布握手、SUBACK、poll 派发与 QoS2 去重、自动心跳、断开、分帧上下限、握手等待期间（含 QoS2 等 PUBREC、等 PUBCOMP 两个等待点）的插帧派发（当前实测 wasm-gc 107 / native 137）。native + C FFI 无法在 wasm 后端实例化。
 - **native 重连的入站 QoS2 去重**：`reconnect` 在 `session_present=1` 时保留旧客户端的 `inbound_qos2` 表，避免 broker 重发「已派发、PUBREL 尚未完成」的 PUBLISH 被重复派发；`session_present=0` 时清空。这条路径需要真实 TCP，未纳入假连接单测。

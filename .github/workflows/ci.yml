@@ -26,11 +26,14 @@ jobs:
       # 四个后端逐一测试，证明「可移植的库」是构建期可验证的事实。
       # 注意：三步刻意分开写；合并成多行 run 块在 windows-latest
       # 会走 PowerShell，行分隔语义不同，会直接跑挂。
-      # fmt 检查暂停：CI 装的是最新工具链，它把 `} derive(...)` 规范成
-      # `#derive(...)` 前缀写法；而本地 0.1.20261012 既不认 `#derive`，
-      # 官方下载站也没有这个版本的产物（403），无法用 version 钉住。
-      # 结论：这条检查在当前工具链组合下无法两边同时通过，只能先撤掉。
-      # 升级本地工具链后，把枚举改成 `#derive` 前缀再恢复这一步。
+
+      # 格式检查（advisory，不阻断）：CI 装最新工具链，把 `} derive(...)` 规范成
+      # `#derive(...)` 前缀写法；本地 0.1.20261012 是后缀写法，该版本在官方
+      # 下载站又没有产物（setup 直接 403），无法用 version 钉住。两边不可能
+      # 同时通过，所以只报告差异、不判红。升级工具链后去掉 continue-on-error。
+      - name: Format report (advisory)
+        continue-on-error: true
+        run: moon fmt --check
 
       - name: Check
         run: moon check

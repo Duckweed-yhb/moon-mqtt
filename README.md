@@ -272,7 +272,7 @@ moon run examples/resume
 pwsh scripts/build-demo.ps1          # 浏览器 demo
 ```
 
-CI（GitHub Actions，Linux / Windows 双矩阵）跑 check + 四后端 build/test + 示例运行 + 两个浏览器 demo 构建。`moon fmt --check` 暂未接入：CI 装的是最新工具链，它把 `} derive(...)` 规范成 `#derive(...)` 前缀写法，而本地 0.1.20261012 不认这个语法、官方下载站也没有该版本产物（无法用 `version` 钉住）。升级工具链后再恢复这条检查。
+CI（GitHub Actions，Linux / Windows 双矩阵）跑 check + 四后端 build/test + 示例运行 + 两个浏览器 demo 构建。`moon fmt --check` 以 **advisory** 方式接入：CI 装最新工具链，它把 `} derive(...)` 规范成 `#derive(...)` 前缀写法；本地 0.1.20261012 是后缀写法，且该版本在官方下载站没有产物（setup 直接 403），无法用 `version` 钉住。两边无法同时满足，所以这一步只报告差异、不判红。升级本地工具链到与 CI 一致后，把枚举改成 `#derive` 前缀并去掉 `continue-on-error`。
 
 ## 手动验证（native 连真 broker）
 

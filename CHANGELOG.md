@@ -4,6 +4,8 @@
 
 ## [Unreleased]
 
+## [0.3.14] - 2026-11-11
+
 ### Added
 
 - `client/connect_opts_with_timeout` 与 `connect_with_conn_timeout`：读超时从写死 5 秒改为可配置（`<= 0` 回退默认）。跨公网、大报文体、broker 回包慢时，5 秒会把连接误判成超时并标成 `desynced`（帧边界已丢、只能重连）。`MqttClient::read_timeout()` 返回当前值便于核对。

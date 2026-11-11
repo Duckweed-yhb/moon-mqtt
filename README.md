@@ -272,7 +272,7 @@ moon run examples/resume
 pwsh scripts/build-demo.ps1          # 浏览器 demo
 ```
 
-CI（GitHub Actions，Linux / Windows 双矩阵）跑 check + 四后端 build/test + 示例运行 + 两个浏览器 demo 构建。
+CI（GitHub Actions，Linux / Windows 双矩阵）跑 check + 四后端 build/test + 示例运行 + 两个浏览器 demo 构建。工具链**钉住 0.1.20261012**（与本地验证口径一致）：`fmt` 规则会随版本漂移，不钉住会出现「本地 fmt 通过、CI fmt 失败」的假红灯。
 
 ## 手动验证（native 连真 broker）
 

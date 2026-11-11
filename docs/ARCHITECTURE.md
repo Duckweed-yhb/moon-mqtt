@@ -152,10 +152,10 @@ broker ──WebSocket──► JS onmessage
 | `async/` | ✅ | ✅ | ✅ | ✅ |
 | `browser/` | - | - | ✅ | - |
 | `transport/` | - | - | - | ✅ |
-| `client/` | - | - | - | ✅（`client_wbtest.mbt` 27 条，经 `Conn` 假连接覆盖主路径） |
+| `client/` | - | - | - | ✅（`client_wbtest.mbt` 36 条，经 `Conn` 假连接覆盖主路径） |
 | `examples/pubsub` | - | ✅ | - | ✅ |
 | `examples/resume` | - | ✅ | - | ✅ |
 | `examples/browser-demo` | - | - | ✅ | - |
 | `examples/ws-spike` | - | - | ✅ | - |
 
-`moon test --target wasm-gc` 107/107，`moon test --target native` 137/137（2026-11-10 实测）；`moon check --target js --deny-warn` 0 警告。纯计算层四后端可测，`browser/` 与两个浏览器示例只编 js，`transport/` 与 `client/` 只编 native。
+`moon test --target wasm-gc` 153/153，`moon test --target native` 193/193（2026-11-11 实测）；本机 `moon check --target js --deny-warn` 0 警告，CI 最新工具链暂不带 `--deny-warn`（`derive` 后缀被误判 deprecated）。纯计算层四后端可测，`browser/` 与两个浏览器示例只编 js，`transport/` 与 `client/` 只编 native。

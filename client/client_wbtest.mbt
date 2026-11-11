@@ -24,6 +24,7 @@ priv struct FakeConn {
   mut pos : Int32
   out : Array[Array[Int32]]
   close_count : Array[Int32]
+  timeouts : Array[Int32]
 }
 
 ///|
@@ -51,7 +52,7 @@ impl Conn for FakeConn with fn read_some(self, max) {
 
 ///|
 impl Conn for FakeConn with fn wait_read(self, timeout_ms) {
-  ignore(timeout_ms)
+  self.timeouts.push(timeout_ms)
   Ok(self.pos < self.in_bytes.length())
 }
 
@@ -106,6 +107,7 @@ fn f_connected(
     pos: 0,
     out,
     close_count: closed,
+    timeouts: [],
   }
   match
     handshake(
@@ -145,6 +147,7 @@ test "connect reports session_present=true from CONNACK" {
     pos: 0,
     out,
     close_count: closed,
+    timeouts: [],
   }
   match
     handshake(
@@ -168,6 +171,7 @@ test "connect closes socket and reports refused CONNACK" {
     pos: 0,
     out,
     close_count: closed,
+    timeouts: [],
   }
   match
     handshake(
@@ -192,6 +196,7 @@ test "connect rejects a first frame that is not CONNACK" {
     pos: 0,
     out,
     close_count: closed,
+    timeouts: [],
   }
   match
     handshake(
@@ -216,6 +221,7 @@ test "connect times out on a half frame instead of hanging" {
     pos: 0,
     out,
     close_count: closed,
+    timeouts: [],
   }
   match
     handshake(
@@ -769,11 +775,13 @@ test "unsubscribe rejects an invalid filter before writing" {
 test "read timeout is configurable and defaults to five seconds" {
   let out : Array[Array[Int32]] = []
   let closed : Array[Int32] = []
+  let timeouts : Array[Int32] = []
   let fake : &Conn = FakeConn::{
     in_bytes: f_script([f_connack(false, 0)]),
     pos: 0,
     out,
     close_count: closed,
+    timeouts,
   }
   let c = match
     handshake(fake, "h", 1883, @protocol.ConnectPacket::new("cli"), 1234) {
@@ -781,12 +789,19 @@ test "read timeout is configurable and defaults to five seconds" {
     Err(e) => fail(e)
   }
   assert_eq(c.read_timeout(), 1234)
+  // 等待 CONNACK 的握手读也必须用显式超时，而不是仍走默认 5 秒
+  assert_true(timeouts.length() > 0)
+  for t in timeouts {
+    assert_eq(t, 1234)
+  }
   // 非正超时回退默认值（5000），而不是「每次读立刻超时」
+  let timeouts2 : Array[Int32] = []
   let fake2 : &Conn = FakeConn::{
     in_bytes: f_script([f_connack(false, 0)]),
     pos: 0,
     out: [],
     close_count: [],
+    timeouts: timeouts2,
   }
   let c2 = match
     handshake(fake2, "h", 1883, @protocol.ConnectPacket::new("cli"), 0) {
@@ -794,4 +809,7 @@ test "read timeout is configurable and defaults to five seconds" {
     Err(e) => fail(e)
   }
   assert_eq(c2.read_timeout(), 5000)
+  for t in timeouts2 {
+    assert_eq(t, 5000)
+  }
 }

@@ -180,7 +180,7 @@ fn handshake(
   }
   // 读 CONNACK
   let poison = [false]
-  let connack = match read_frame(tcp, read_timeout_ms(), poison) {
+  let connack = match read_frame(tcp, timeout_ms, poison) {
     Ok(bytes) =>
       match @protocol.decode_packet(bytes) {
         Ok(@protocol.IncomingPacket::Connack(c)) => c

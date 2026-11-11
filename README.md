@@ -257,14 +257,14 @@ sequenceDiagram
 - [x] 事件 → 动作的决策表：`core/plan_event` 把「该不该关连接、该回调谁」做成纯函数，`browser/` 与 `async/` 共用同一张表
 - [x] 主题校验（§4.7）：publish 的 topic name 拒绝空串 / 通配符 / U+0000；subscribe 的过滤器拒绝 `a/#/b`、`a/x+` 这类越界写法；解码侧同样拒绝 broker 发来的非法 topic
 - [x] `moon test --target wasm-gc` 153/153；`moon test --target native` 193/193（js 后端本机缺 node，交给 CI 跑）
-- [x] `moon check --target js --deny-warn` 通过，0 警告
+- [x] `moon check --target js` 通过（本机 0.1.20261012 下 `--deny-warn` 也干净；CI 的最新工具链会把 `} derive(...)` 判成 deprecated_syntax，所以 CI 那一步暂时不带 `--deny-warn`，见 CI 注释）
 - [x] 发布到 mooncakes（0.3.14）
 
 ## 构建与测试
 
 ```bash
 moon check
-moon check --target js --deny-warn   # 0 警告
+moon check --target js --deny-warn   # 本机 0 警告（CI 因工具链差异暂不带 --deny-warn）
 moon test --target wasm-gc           # 153/153
 moon test --target native            # 193/193
 moon run examples/pubsub

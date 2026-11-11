@@ -12,7 +12,7 @@ MoonBit 写的 MQTT 3.1.1 客户端。浏览器里走 WebSocket，native 上走 
 
 ## 安装
 
-需要 [MoonBit 工具链](https://www.moonbitlang.com/)（moon ≥ 0.1.20261012）。浏览器项目用 js 后端，native 用默认后端。
+需要 [MoonBit 工具链](https://www.moonbitlang.com/)（moon 0.1.20261104 及以上；源码用 `#derive(...)` 前缀写法，旧工具链不认）。浏览器项目用 js 后端，native 用默认后端。
 
 ```bash
 moon add Duckweed/moon-mqtt@0.3.14
@@ -256,23 +256,25 @@ sequenceDiagram
 - [x] 浏览器 MQTT 保活：`browser_tick` 由 JS 每秒驱动，每 `keep_alive/2` 秒发 PINGREQ，连续 3 次无 PINGRESP 主动断开重连
 - [x] 事件 → 动作的决策表：`core/plan_event` 把「该不该关连接、该回调谁」做成纯函数，`browser/` 与 `async/` 共用同一张表
 - [x] 主题校验（§4.7）：publish 的 topic name 拒绝空串 / 通配符 / U+0000；subscribe 的过滤器拒绝 `a/#/b`、`a/x+` 这类越界写法；解码侧同样拒绝 broker 发来的非法 topic
-- [x] `moon test --target wasm-gc` 153/153；`moon test --target native` 193/193（js 后端本机缺 node，交给 CI 跑）
-- [x] `moon check --target js` 通过（本机 0.1.20261012 下 `--deny-warn` 也干净；CI 的最新工具链会把 `} derive(...)` 判成 deprecated_syntax，所以 CI 那一步暂时不带 `--deny-warn`，见 CI 注释）
+- [x] 四后端测试全绿（2026-11-11 实测）：wasm 153/153、wasm-gc 153/153、js 153/153、native 193/193
+- [x] `moon check --deny-warn` 四个后端 0 警告
 - [x] 发布到 mooncakes（0.3.14）
 
 ## 构建与测试
 
 ```bash
 moon check
-moon check --target js --deny-warn   # 本机 0 警告（CI 因工具链差异暂不带 --deny-warn）
+moon check --target js --deny-warn   # 0 警告
+moon test --target wasm              # 153/153
 moon test --target wasm-gc           # 153/153
+moon test --target js                # 153/153
 moon test --target native            # 193/193
 moon run examples/pubsub
 moon run examples/resume
 pwsh scripts/build-demo.ps1          # 浏览器 demo
 ```
 
-CI（GitHub Actions，Linux / Windows 双矩阵）跑 check + 四后端 build/test + 示例运行 + 两个浏览器 demo 构建。`moon fmt --check` 以 **advisory** 方式接入：CI 装最新工具链，它把 `} derive(...)` 规范成 `#derive(...)` 前缀写法；本地 0.1.20261012 是后缀写法，且该版本在官方下载站没有产物（setup 直接 403），无法用 `version` 钉住。两边无法同时满足，所以这一步只报告差异、不判红。升级本地工具链到与 CI 一致后，把枚举改成 `#derive` 前缀并去掉 `continue-on-error`。
+CI（GitHub Actions，Linux / Windows 双矩阵）跑 check + 四后端 build/test + 示例运行 + 两个浏览器 demo 构建。`moon fmt --check` 与 `check --target js --deny-warn` 都是阻断式：官方只对外提供 `binaries/latest`，按版本号取产物一律 403，所以 CI 无法钉版本，只能本地与 CI 同步到 latest（当前 0.1.20261104）。源码统一用 `#derive(...)` 前缀写法，两边格式与警告口径一致。
 
 ## 手动验证（native 连真 broker）
 

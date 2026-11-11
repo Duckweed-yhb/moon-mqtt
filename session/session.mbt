@@ -24,11 +24,12 @@ pub fn allocate(a : PacketIdAllocator) -> (Int32, PacketIdAllocator) {
 
 ///|
 /// 发布侧 QoS2 握手状态。
+#derive(Eq, Debug)
 pub enum Qos2Send {
   WaitPubrec // PUBLISH(qos2) 已发，等 PUBREC
   WaitPubcomp // PUBREL 已发，等 PUBCOMP
   Complete // 握手完成
-} derive(Eq, Debug)
+}
 
 ///|
 pub extend Qos2Send with Eq::{not_equal, equal}
@@ -67,11 +68,12 @@ pub fn qos2_on_pubcomp(s : Qos2Send, _packet_id : Int32) -> Qos2Send {
 
 ///|
 /// 接收侧 QoS2 握手状态。
+#derive(Eq, Debug)
 pub enum Qos2Recv {
   Idle
   WaitPubrel // 已回 PUBREC，等 PUBREL
   Complete // 已回 PUBCOMP
-} derive(Eq, Debug)
+}
 
 ///|
 pub extend Qos2Recv with Eq::{not_equal, equal}

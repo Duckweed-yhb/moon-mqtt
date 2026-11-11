@@ -4,11 +4,12 @@
 /// 0 = 至多一次（at most once）
 /// 1 = 至少一次（at least once）
 /// 2 = 恰好一次（exactly once）——PUBREC/PUBREL/PUBCOMP 握手
+#derive(Eq, Debug)
 pub enum QoS {
   AtMostOnce
   AtLeastOnce
   ExactlyOnce
-} derive(Eq, Debug)
+}
 
 // 显式声明 trait 方法提升，避免新版工具链 implicit_impl_as_method 弃用警告
 

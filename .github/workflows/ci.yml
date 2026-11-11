@@ -27,26 +27,21 @@ jobs:
       # 注意：三步刻意分开写；合并成多行 run 块在 windows-latest
       # 会走 PowerShell，行分隔语义不同，会直接跑挂。
 
-      # 格式检查（advisory，不阻断）：CI 装最新工具链，把 `} derive(...)` 规范成
-      # `#derive(...)` 前缀写法；本地 0.1.20261012 是后缀写法，该版本在官方
-      # 下载站又没有产物（setup 直接 403），无法用 version 钉住。两边不可能
-      # 同时通过，所以只报告差异、不判红。升级工具链后去掉 continue-on-error。
-      - name: Format report (advisory)
-        continue-on-error: true
+      # 格式检查（阻断）：枚举统一用 `#derive(...)` 前缀写法。
+      # 官方只对外提供 `binaries/latest`，按版本号取产物一律 403，所以 CI 与
+      # 本地都用 latest（当前 0.1.20261104），两边格式必须一致。
+      - name: Format check
         run: moon fmt --check
 
       - name: Check
         run: moon check
 
-      # js 目标暂时不带 --deny-warn：新工具链把 `} derive(...)` 判成 deprecated_syntax，
-      # 本地 0.1.20261012 又不认 `#derive`，源码无法让两边同时零警告。
-      # 升级工具链、把枚举迁到 `#derive` 后恢复 --deny-warn（JS FFI 边界的严格检查）。
+      # js 目标带 --deny-warn：JS FFI 边界的警告一律当错误。
       - name: Check (js)
-        run: moon check --target js
+        run: moon check --target js --deny-warn
 
       # 独立 build 步骤（验收第 5 条：构建覆盖）。
-      # 四个后端逐一构建，与下方 test 矩阵对齐；本地 wasm/js bundle 缺失
-      # 是本机 core 预编译产物问题，CI 上四后端均为绿。
+      # 四个后端逐一构建，与下方 test 矩阵对齐。
       - name: Build (wasm)
         run: moon build --target wasm
 

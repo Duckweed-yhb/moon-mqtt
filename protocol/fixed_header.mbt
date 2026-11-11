@@ -2,6 +2,7 @@
 /// MQTT 3.1.1 控制报文类型，见规范 §2.2.1 表 2-1。
 ///
 /// 每个报文的第一字节高 4 位是类型，低 4 位是 flags。
+#derive(Eq, Debug)
 pub enum PacketType {
   Connect // 1
   Connack // 2
@@ -17,7 +18,7 @@ pub enum PacketType {
   Pingreq // 12
   Pingresp // 13
   Disconnect // 14
-} derive(Eq, Debug)
+}
 
 ///|
 /// PacketType 到协议字节值。

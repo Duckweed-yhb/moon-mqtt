@@ -10,11 +10,12 @@
 
 ///|
 /// 在途出站报文的发送阶段。
+#derive(Eq, Debug)
 pub enum SendStage {
   WaitingPuback // QoS1：PUBLISH 已发，待 PUBACK
   WaitPubrec // QoS2：PUBLISH 已发，待 PUBREC
   WaitPubcomp // QoS2：PUBREL 已发，待 PUBCOMP
-} derive(Eq, Debug)
+}
 
 ///|
 pub extend SendStage with Eq::{not_equal, equal}

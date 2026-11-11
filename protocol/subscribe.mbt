@@ -61,12 +61,13 @@ pub fn encode_subscribe(pkt : SubscribePacket) -> Array[Int32] {
 
 ///|
 /// SUBACK 每个订阅返回码（§3.9.3）。
+#derive(Eq, Debug)
 pub enum SubAckCode {
   Success0
   Success1
   Success2
   Failure
-} derive(Eq, Debug)
+}
 
 ///|
 pub extend SubAckCode with Eq::{not_equal, equal}

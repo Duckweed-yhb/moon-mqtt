@@ -4,6 +4,11 @@
 
 ## [Unreleased]
 
+### Changed
+
+- 全部枚举的派生写法从 `} derive(...)` 迁到 `#derive(...)` 前缀（8 处、7 个文件）。旧写法在新工具链上是 `deprecated_syntax`，`--deny-warn` 会直接判红；新写法需要 moon 0.1.20261104 及以上，因此**最低工具链版本随之提高**。
+- CI 的 `moon fmt --check` 从 advisory 恢复为阻断式，`check --target js` 恢复 `--deny-warn`。官方只对外提供 `binaries/latest`（按版本号取产物一律 403），CI 无法钉版本，只能与本地同步到同一工具链；恢复严格检查的前提正是这一点。
+
 ### Fixed
 
 - `client/handshake` 等待 CONNACK 此前仍用默认 5 秒超时，忽略 `connect_opts_with_timeout` 传入并归一后的超时；握手读现在也用该超时，与「读超时贯穿握手」的声明一致。回归由 `FakeConn` 记录每次 `wait_read` 收到的超时值，覆盖显式 1234 与非正回退 5000 两条分支。

@@ -150,6 +150,7 @@ pub fn encode_connect(pkt : ConnectPacket) -> Array[Int32] {
 
 ///|
 /// CONNACK 返回码（3.1.1 §3.2.2.3）。
+#derive(Eq, Debug)
 pub enum ConnectReturnCode {
   ConnectionAccepted
   UnacceptableProtocolVersion
@@ -157,7 +158,7 @@ pub enum ConnectReturnCode {
   ServerUnavailable
   BadUsernameOrPassword
   NotAuthorized
-} derive(Eq, Debug)
+}
 
 ///|
 pub extend ConnectReturnCode with Eq::{not_equal, equal}

@@ -9,12 +9,13 @@
 ///
 /// 注：MoonBit enum variant 不能直接 == 比较，必须按仓库现有写法
 /// 显式 extend Eq::{not_equal, equal} 与 Debug::{to_repr}。
+#derive(Eq, Debug)
 pub enum CoreState {
   Disconnected
   Connecting
   Connected
   Disconnecting
-} derive(Eq, Debug)
+}
 
 ///|
 pub extend CoreState with Eq::{not_equal, equal}

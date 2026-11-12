@@ -232,7 +232,12 @@ pub fn AsyncClient::on_transport_close(self : AsyncClient) -> Unit {
 /// 重连：复用同一 ConnectPacket 重新编码 CONNECT，塞进待发队列，
 /// 状态切回 Connecting。在途消息在收到 session_present=1 的 CONNACK 时
 /// 由 `feed_bytes` 自动重发。
+///
+/// 入队新 CONNECT 前先清空待发队列：这些尚未交给旧连接的字节没有可用连接
+/// 可写，若沿带到新连接会排在新 CONNECT 之前重复出站。SessionStore 保留，
+/// 权威在途重发仍由后续 `replay_bytes()` 负责。
 pub fn AsyncClient::reconnect(self : AsyncClient) -> Unit {
+  self.pending = []
   let bytes = self.core.reconnect_bytes()
   for b in bytes {
     self.pending.push(b)

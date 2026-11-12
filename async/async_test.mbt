@@ -250,3 +250,22 @@ test "async publish rejects invalid topic instead of dropping silently" {
   client.publish("sensors/temp", [1], @protocol.qos0())
   assert_true(client.drain_pending().length() > 0)
 }
+
+///|
+/// 漏调 on_transport_close、直接 reconnect 时，尚未交给 socket 的待发字节
+/// 也必须丢弃：旧连接已不可写，沿带到新连接会排在新 CONNECT 之前重复出站。
+test "reconnect discards undrained pending even without transport close" {
+  let client = @async.AsyncClient::new(
+    @protocol.ConnectPacket::new("async-test"),
+  )
+  let _ = client.drain_pending()
+  client.feed_bytes([0x20, 0x02, 0x00, 0x00])
+  let _ = client.drain_events()
+  // Connected 后产生出站字节，刻意不 drain，也不先调 on_transport_close。
+  client.publish("a", [1], @protocol.qos1())
+  // 直接重连：队列里应只剩一条全新 CONNECT（首字节 0x10，帧长 24）。
+  client.reconnect()
+  let fresh = client.drain_pending()
+  assert_eq(fresh[0], 0x10)
+  assert_eq(fresh.length(), 24)
+}

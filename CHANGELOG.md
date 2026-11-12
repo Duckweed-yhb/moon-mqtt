@@ -4,6 +4,10 @@
 
 ## [Unreleased]
 
+### Added
+
+- `core/CoreEvent::MalformedFrame(类型号, 原因)`：已知入站报文的解码失败单独上报，`plan_event` 映射到 `Fatal`（§4.8 要求关闭连接）。此前所有 `Err` 都被压成 `UnknownPacketType` 且丢掉原因文本，一条因 topic 非法被拒的 QoS1 PUBLISH 与「不认识的报文类型」在日志里无法区分。
+
 ### Changed
 
 - 全部枚举的派生写法从 `} derive(...)` 迁到 `#derive(...)` 前缀（8 处、7 个文件）。旧写法在新工具链上是 `deprecated_syntax`，`--deny-warn` 会直接判红；新写法需要 moon 0.1.20261104 及以上，因此**最低工具链版本随之提高**。
@@ -12,6 +16,12 @@
 ### Fixed
 
 - `client/handshake` 等待 CONNACK 此前仍用默认 5 秒超时，忽略 `connect_opts_with_timeout` 传入并归一后的超时；握手读现在也用该超时，与「读超时贯穿握手」的声明一致。回归由 `FakeConn` 记录每次 `wait_read` 收到的超时值，覆盖显式 1234 与非正回退 5000 两条分支。
+- `core` 在 CONNACK `session_present=0` 时不清会话状态：入站 QoS2 去重表残留，新会话里 packet_id 被复用时那条消息只回 PUBREC 不派发（只判「重复投递」），消息永久丢失且零错误；出站在途清单也会被重放给已经丢会话的 broker。现在按 §4.4 一并作废。`browser` / `async` / `client` 三层本来就各自调了 `reset_session()`，出问题的是直接使用 `@core.ClientCore` 的路径（仓库自带的 `examples/ws-spike` 就是这种用法）。
+- `session/on_puback` / `on_pubcomp` 不校验握手阶段：一条 QoS2 在 `WaitPubrec` 阶段收到 PUBACK 也会被删掉，PUBREL 永远不发，QoS2 静默降级成至多一次。现在只清阶段匹配的条目（`on_pubrec` 本来就是这么做的）。
+- `protocol/decode_unsuback` 不校验剩余长度、packet_id 与帧尾：`data[1]` 完全不看、`pid=0` 放过。截断的 UNSUBACK 被当成功，`pid=0` 的变体到调用方变成 "UNSUBACK id mismatch"（把协议错误报成业务错误）。现在与 `decode_suback` 同一套严格度。
+- `protocol/encode_publish` / `encode_packet_id` / `encode_connect` 不校验编码侧约束：可以产出 `packet_id=0` 的 QoS1/2 PUBLISH、`packet_id=0` 的 PUBACK 家族，以及「client_id 为空 + clean_session=false」的 CONNECT（§3.1.3.1 要求 broker 必须拒绝）。解码侧对这些一丝不苟，编码侧一条没查；现在越界直接 `abort`，与 `push_u16` 的口径一致。
+- `client/read_frame` 的两个软上限出口（剩余长度溢出、超过 16MB）不置 `poison`：固定头已经吃掉、帧边界必定丢失，但连接没有被标 `desynced`，后续读会把载荷当报文头解出垃圾帧。现在两处都作废连接，测试补了 `desynced` 断言（原来只断言错误文案）。
+- `browser` 的断开与重连两条竞态：掉线后 1 秒重连窗口内调 `disconnect()` 会被 `open()` 清掉手动断开标记重新连上（现在 `close_ws_ffi` 取消待重连定时器）；重复 `connect()` 会覆盖全局 core 但不关旧 socket，旧连接的字节灌进新 core（现在先摘掉旧 socket 的四个回调再关闭）。
 
 ## [0.3.14] - 2026-11-11
 

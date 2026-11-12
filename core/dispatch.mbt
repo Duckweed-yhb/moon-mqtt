@@ -44,6 +44,7 @@ pub fn plan_event(event : CoreEvent) -> DispatchAction {
     CoreEvent::SubackReceived(_) => Subacked
     CoreEvent::PingRespReceived => Ignore
     CoreEvent::UnknownPacketType(t) => Unknown(t)
+    CoreEvent::MalformedFrame(_, reason) => Fatal(reason)
     CoreEvent::FramerError(e) => Fatal(e)
   }
 }

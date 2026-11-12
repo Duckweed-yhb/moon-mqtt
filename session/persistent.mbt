@@ -173,26 +173,38 @@ pub fn alloc_control_packet_id(store : SessionStore) -> (SessionStore, Int32) {
 }
 
 ///|
-fn remove_by_id(store : SessionStore, packet_id : Int32) -> SessionStore {
+
+///|
+/// 只移除「id 匹配且阶段匹配」的条目；阶段不匹配时原样保留。
+fn remove_by_id_if(
+  store : SessionStore,
+  packet_id : Int32,
+  stage : SendStage,
+) -> SessionStore {
   let out : Array[InFlightEntry] = []
   for e in store.inflight {
-    if e.packet_id != packet_id {
-      out.push(e)
+    if e.packet_id == packet_id && e.stage == stage {
+      continue
     }
+    out.push(e)
   }
   return { inflight: out, next_id: store.next_id, }
 }
 
 ///|
-/// 收到 PUBACK（QoS1 握手完成）：移除对应在途报文。
+/// 收到 PUBACK（QoS1 握手完成）：只在条目确实处于 WaitingPuback 时移除。
+///
+/// 不校验阶段的话，一条 QoS2 在途（WaitPubrec）收到 PUBACK 也会被删掉，
+/// 于是 PUBREL 永远不发、QoS2 静默降级成至多一次，而且不报协议错误。
+/// 对不上阶段的 ACK 一律忽略当前状态（`on_pubrec` 本来就是这么做的）。
 pub fn on_puback(store : SessionStore, packet_id : Int32) -> SessionStore {
-  return remove_by_id(store, packet_id)
+  return remove_by_id_if(store, packet_id, SendStage::WaitingPuback)
 }
 
 ///|
-/// 收到 PUBCOMP（QoS2 握手完成）：移除对应在途报文。
+/// 收到 PUBCOMP（QoS2 握手完成）：只在条目确实处于 WaitPubcomp 时移除。
 pub fn on_pubcomp(store : SessionStore, packet_id : Int32) -> SessionStore {
-  return remove_by_id(store, packet_id)
+  return remove_by_id_if(store, packet_id, SendStage::WaitPubcomp)
 }
 
 ///|

@@ -866,6 +866,9 @@ fn read_frame(
     } else {
       mult = mult * 128
       if mult > 128 * 128 * 128 {
+        // 已经吃掉了首字节与若干长度字节，帧边界必然丢失：必须作废这条连接，
+        // 否则下一次读会把载荷当报文头解出垃圾帧（此前这里没置 poison）。
+        poison[0] = true
         return Err("remaining length overflow")
       }
     }
@@ -873,6 +876,9 @@ fn read_frame(
   // 读够 rlen 字节。软上限 16MB，挡住恶意/错误 broker 发的超大帧，
   // 避免 Array[Int] 直接撑爆内存。MQTT 协议硬上限是 268435455（256MB）。
   if rlen > 16 * 1024 * 1024 {
+    // 固定头已读完、载荷一个字节没读：下一次读必然把载荷首字节当成报文头，
+    // 所以这条连接和「读到一半失败」一样不可再用。
+    poison[0] = true
     return Err("frame too large (>16MB)")
   }
   let mut got = 0

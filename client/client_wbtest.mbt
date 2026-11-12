@@ -639,6 +639,16 @@ test "poll_once refuses a frame above the 16MB soft cap" {
     Ok(_) => fail("expected Err for oversized frame")
     Err(e) => assert_eq(e, "frame too large (>16MB)")
   }
+  // 固定头已读完、载荷一个字节没读，帧边界必然丢失：连接必须被判失步，
+  // 否则下一次读会把载荷首字节当报文头解出垃圾帧。
+  assert_true(c.desynced)
+  match c.poll_once(1) {
+    Ok(_) => fail("desynchronised connection must not read again")
+    Err(e) =>
+      assert_eq(
+        e, "connection desynchronised after a partial read, reconnect required",
+      )
+  }
 }
 
 ///|
@@ -650,6 +660,8 @@ test "poll_once refuses an overflowing remaining length" {
     Ok(_) => fail("expected Err for overflowing remaining length")
     Err(e) => assert_eq(e, "remaining length overflow")
   }
+  // 已经吃掉了首字节与长度字节，同样属于帧边界丢失。
+  assert_true(c.desynced)
 }
 
 ///|

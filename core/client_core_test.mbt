@@ -363,7 +363,7 @@ test "inbound pubrec triggers pubrel for outbound qos2" {
         @protocol.ConnectPacket::new("core-test"),
         store,
       )
-      let _ = core.feed([0x20, 0x02, 0x00, 0x00]) // CONNACK
+      let _ = core.feed([0x20, 0x02, 0x01, 0x00]) // CONNACK，session_present=1
       // 喂 PUBREC(pid=1)
       match core.feed([0x50, 0x02, 0x00, 0x01]) {
         (events, outgoing) => {
@@ -461,7 +461,9 @@ test "reconnect preserves in-flight session and continues qos handshake" {
         store,
       )
       let _ = core.start() // CONNECT
-      let _ = core.feed([0x20, 0x02, 0x00, 0x00]) // 首联 CONNACK → Connected
+      // 预先注入了在途条目 = 正在恢复旧会话，broker 必须说 session_present=1
+      // 才算恢复；说 0 就是在告诉客户端「会话没了」，在途清单必须作废。
+      let _ = core.feed([0x20, 0x02, 0x01, 0x00])
       assert_eq(core.session().inflight_count(), 1)
       // 断线
       core.on_transport_close()
@@ -478,8 +480,8 @@ test "reconnect preserves in-flight session and continues qos handshake" {
         @core.CoreState::Connecting => ()
         _ => fail("expected Connecting after reconnect_bytes")
       }
-      // 重连后喂新 CONNACK → 状态迁移回 Connected
-      let _ = core.feed([0x20, 0x02, 0x00, 0x00])
+      // 重连后喂新 CONNACK（session_present=1：broker 保住了会话）→ Connected
+      let _ = core.feed([0x20, 0x02, 0x01, 0x00])
       match core.state() {
         @core.CoreState::Connected => ()
         _ => fail("expected Connected after second CONNACK")
@@ -573,8 +575,8 @@ test "reconnect after outbound qos2 publish replays dup publish" {
   assert_eq(replay.length(), 1)
   // DUP flag = 0x08，所以 PUBLISH 第一个字节 = 0x30 | 0x08 | (2<<1) = 0x3C
   assert_eq(replay[0][0], 0x3C)
-  // 喂新 CONNACK → Connected
-  let _ = core.feed([0x20, 0x02, 0x00, 0x00])
+  // 喂新 CONNACK（session_present=1，broker 保住了会话）→ Connected
+  let _ = core.feed([0x20, 0x02, 0x01, 0x00])
   // 喂 PUBREC → 自动 PUBREL
   match core.feed([0x50, 0x02, 0x00, 0x01]) {
     (_, outgoing) => assert_eq(outgoing, [0x62, 0x02, 0x00, 0x01])

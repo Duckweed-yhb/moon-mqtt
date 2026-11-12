@@ -182,17 +182,40 @@ pub fn encode_unsubscribe(pkt : UnsubscribePacket) -> Array[Int32] {
 
 ///|
 /// 解码 UNSUBACK，返回 packet_id。data 为完整报文。
+///
+/// §3.11：UNSUBACK 的剩余长度恒为 2，没有其它字段。这里和 `decode_suback`
+/// 用同一套严格度——此前 `data[1]` 完全不看、pid=0 也放过，截断的 UNSUBACK
+/// 会被当成成功，pid=0 的变体则在调用方变成 "UNSUBACK id mismatch"，
+/// 把协议错误报成业务错误。
 pub fn decode_unsuback(data : Array[Int32]) -> Result[Int32, String] {
-  if data.length() < 4 {
+  if data.length() < 2 {
     return Err("unsuback too short")
   }
   if data[0] != 0xB0 {
     return Err("not an unsuback")
   }
-  let r = ByteReader::new(data)
-  match r.read_u16(2) {
-    Ok((pid, _)) => Ok(pid)
+  match decode_remaining_length(data, 1) {
     Err(e) => Err(e)
+    Ok((rlen, header_end)) => {
+      if rlen != 2 {
+        return Err(
+          "unsuback remaining length must be 2, got " + rlen.to_string(),
+        )
+      }
+      if header_end + rlen != data.length() {
+        return Err("unsuback length mismatch")
+      }
+      let r = ByteReader::new(data)
+      match r.read_u16(header_end) {
+        Err(e) => Err(e)
+        Ok((pid, _)) =>
+          if pid == 0 {
+            Err("unsuback packet id must be nonzero")
+          } else {
+            Ok(pid)
+          }
+      }
+    }
   }
 }
 

@@ -445,6 +445,13 @@ extern "js" fn open_ws_ffi(
   connect_bytes : FixedArray[Int32],
 ) -> Unit =
   #|(url, connectBytes) => {
+  #|  // 重新 connect 时，旧 socket 必须先摘掉回调再关：它的 onmessage 仍然指向
+  #|  // 同一套 MoonBit 入口，不摘的话旧连接的字节会灌进刚建好的新 core。
+  #|  const prev = (typeof globalThis !== "undefined") ? globalThis.moonMQTTWs : null;
+  #|  if (prev) {
+  #|    prev.onopen = null; prev.onmessage = null; prev.onclose = null; prev.onerror = null;
+  #|    try { prev.close(); } catch (e) {}
+  #|  }
   #|  let ws = null;
   #|  let reconnectAttempts = 0;
   #|  const MAX_RECONNECT = 3;
@@ -498,7 +505,8 @@ extern "js" fn open_ws_ffi(
   #|      if (reconnectAttempts < MAX_RECONNECT) {
   #|        reconnectAttempts = reconnectAttempts + 1;
   #|        console.log("[browser] reconnect attempt #" + reconnectAttempts + " in 1s");
-  #|        setTimeout(open, 1000);
+  #|        // 定时器句柄挂到全局：disconnect() 要能把这个待重连取消掉。
+  #|        globalThis.moonMQTTRetryTimer = setTimeout(open, 1000);
   #|      }
   #|    };
   #|  }
@@ -520,8 +528,17 @@ extern "js" fn mark_manual_close_ffi() -> Unit =
 
 ///|
 /// 主动关闭 WebSocket。
+///
+/// 同时取消待重连定时器：掉线后 1 秒内调用 disconnect()，以前那个
+/// setTimeout 到点后会把「手动断开」标记重新清掉并连回去。
 extern "js" fn close_ws_ffi() -> Unit =
   #|() => {
+  #|  if (typeof globalThis !== "undefined") {
+  #|    if (globalThis.moonMQTTRetryTimer) {
+  #|      clearTimeout(globalThis.moonMQTTRetryTimer);
+  #|      globalThis.moonMQTTRetryTimer = null;
+  #|    }
+  #|  }
   #|  const ws = (typeof globalThis !== "undefined") ? globalThis.moonMQTTWs : null;
   #|  if (ws) { try { ws.close(); } catch (e) {} }
   #|}

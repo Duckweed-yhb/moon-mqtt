@@ -55,9 +55,28 @@ pub enum CoreEvent {
   PingRespReceived
   /// 收到 decode_packet 不认识 / 解不出来的报文。
   UnknownPacketType(Int32)
+  /// 已知的入站报文类型解码失败：对端违反了规范（§4.8 要求关闭连接）。
+  /// 与 `UnknownPacketType` 分开：前者是「对端发错了」，后者是「本版本不认识」。
+  /// 带上 (类型号, 具体原因)，否则胶水层只能打出 "unknown packet type 3"。
+  MalformedFrame(Int32, String)
   /// 帧组装进入不可恢复状态（畸形固定头或缓冲超限），缓冲已清空。
   /// 收到该事件后调用方应断开连接，不要再继续 feed。
   FramerError(String)
+}
+
+///|
+/// 客户端应当接收的报文类型。1/8/10/12/14 是客户端发往 broker 的，
+/// 0/15 是保留值——这些出现在入站方向属于「不认识」，而不是「解坏了」。
+fn is_inbound_type(t : Int32) -> Bool {
+  t == 2 ||
+  t == 3 ||
+  t == 4 ||
+  t == 5 ||
+  t == 6 ||
+  t == 7 ||
+  t == 9 ||
+  t == 11 ||
+  t == 13
 }
 
 ///|
@@ -158,9 +177,15 @@ pub fn ClientCore::feed(
   }
   for frame in frames {
     match @protocol.decode_packet(frame) {
-      Err(_) =>
-        // 解不出来的帧抛 UnknownPacketType 事件，让胶水层记录。
-        events.push(CoreEvent::UnknownPacketType(frame[0] >> 4))
+      Err(e) =>
+        // 已知入站类型的解码失败是协议错误，原因必须带出去：
+        // 以前所有 Err 都压成 UnknownPacketType 并把 e 丢掉，一条因 topic 非法
+        // 被拒的 QoS1 PUBLISH 与「不认识的报文类型」在日志里长得一模一样。
+        if is_inbound_type(frame[0] >> 4) {
+          events.push(CoreEvent::MalformedFrame(frame[0] >> 4, e))
+        } else {
+          events.push(CoreEvent::UnknownPacketType(frame[0] >> 4))
+        }
       Ok(pkt) =>
         match pkt {
           @protocol.IncomingPacket::Connack(c) => {
@@ -170,11 +195,14 @@ pub fn ClientCore::feed(
                 CoreState::Connected
               _ => CoreState::Disconnected
             }
-            // session_present=false：broker 丢了会话，自动重订已记录的订阅。
-            // session_present=true：broker 保留了订阅，无需重订。
+            // session_present=false：broker 丢了会话，本地所有会话状态必须作废。
+            // §4.4：新会话里 packet_id 是复用的，保留旧的入站 QoS2 去重表会让
+            // 复用同一个 id 的新消息被拒收（只回 PUBREC、不派发，消息永久丢失）；
+            // 出站的在途清单同理不能再重放给这个 broker。
             match c.return_code {
               @protocol.ConnectReturnCode::ConnectionAccepted =>
                 if !c.session_present {
+                  self.reset_session()
                   append_bytes(outgoing, self.resubscribe_bytes())
                 }
               _ => ()

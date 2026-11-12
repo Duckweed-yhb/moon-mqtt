@@ -79,7 +79,13 @@ pub fn ConnectPacket::with_will(
 
 ///|
 /// 把 CONNECT 编码为完整报文（含固定头）。
+///
+/// §3.1.3.1：client_id 为空时 clean_session 必须为 1，否则 broker 必须回
+/// IdentifierRejected。这一条在编码侧先拒，别把一次注定失败的握手发出去。
 pub fn encode_connect(pkt : ConnectPacket) -> Array[Int32] {
+  if pkt.client_id == "" && !pkt.clean_session {
+    abort("mqtt: empty client id requires clean_session=true")
+  }
   // 可变头：协议名 + 级别 + 连接标志 + 保持连接
   let vh = ByteWriter::new()
   vh.push_string("MQTT")

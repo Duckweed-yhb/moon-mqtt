@@ -59,7 +59,14 @@ pub fn PublishPacket::with_dup(
 
 ///|
 /// 编码 PUBLISH 为完整报文（含固定头）。
+///
+/// QoS1/2 的 packet_id 不能为 0（§2.3.1）：解码侧本来就拒这种帧，编码侧也
+/// 必须拒——`PublishPacket` 是公开类型，库外自己构造一个 pid=0 的包进来，
+/// 以前会静默产出一条 broker 必须当协议错误处理的报文。
 pub fn encode_publish(pkt : PublishPacket) -> Array[Int32] {
+  if pkt.qos != QoS::AtMostOnce && pkt.packet_id == 0 {
+    abort("mqtt: qos1/qos2 publish needs a nonzero packet id")
+  }
   let body = ByteWriter::new()
   body.push_string(pkt.topic)
   if pkt.qos != QoS::AtMostOnce {
@@ -158,6 +165,12 @@ pub fn decode_publish(data : Array[Int32]) -> Result[PublishPacket, String] {
 ///|
 /// 编码仅含 packet_id 的 QoS 控制包（PUBACK/PUBREC/PUBREL/PUBCOMP）。
 pub fn encode_packet_id(type_byte : Int32, packet_id : Int32) -> Array[Int32] {
+  if packet_id <= 0 {
+    abort(
+      "mqtt: control packet id must be in 1..65535, got " +
+      packet_id.to_string(),
+    )
+  }
   let out = ByteWriter::new()
   out.push_byte(type_byte)
   out.push_remaining_length(2)

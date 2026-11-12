@@ -22,6 +22,7 @@
 - `protocol/encode_publish` / `encode_packet_id` / `encode_connect` 不校验编码侧约束：可以产出 `packet_id=0` 的 QoS1/2 PUBLISH、`packet_id=0` 的 PUBACK 家族，以及「client_id 为空 + clean_session=false」的 CONNECT（§3.1.3.1 要求 broker 必须拒绝）。解码侧对这些一丝不苟，编码侧一条没查；现在越界直接 `abort`，与 `push_u16` 的口径一致。
 - `client/read_frame` 的两个软上限出口（剩余长度溢出、超过 16MB）不置 `poison`：固定头已经吃掉、帧边界必定丢失，但连接没有被标 `desynced`，后续读会把载荷当报文头解出垃圾帧。现在两处都作废连接，测试补了 `desynced` 断言（原来只断言错误文案）。
 - `browser` 的断开与重连两条竞态：掉线后 1 秒重连窗口内调 `disconnect()` 会被 `open()` 清掉手动断开标记重新连上（现在 `close_ws_ffi` 取消待重连定时器）；重复 `connect()` 会覆盖全局 core 但不关旧 socket，旧连接的字节灌进新 core（现在先摘掉旧 socket 的四个回调再关闭）。
+- `async/reconnect` 此前不清待发字节队列：漏调 `on_transport_close` 直接重连时，尚未交给旧连接的出站字节残留下来，与新 CONNECT 混排重复出站。现在入队新 CONNECT 前先清空队列；在途 QoS1/2 仍由 SessionStore 按 `session_present` 重放，不丢失。回归覆盖「未先 close 直接 reconnect」路径。
 
 ## [0.3.14] - 2026-11-11
 

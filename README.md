@@ -276,6 +276,29 @@ pwsh scripts/build-demo.ps1          # 浏览器 demo
 
 CI（GitHub Actions，Linux / Windows 双矩阵）跑 check + 四后端 build/test + 示例运行 + 两个浏览器 demo 构建。`moon fmt --check` 与 `check --target js --deny-warn` 都是阻断式：官方只对外提供 `binaries/latest`，按版本号取产物一律 403，所以 CI 无法钉版本，只能本地与 CI 同步到 latest（当前 0.1.20261104）。源码统一用 `#derive(...)` 前缀写法，两边格式与警告口径一致。
 
+## 看一眼输出：一次完整握手
+
+不需要 broker 进程、不需要网络，一行命令把整套时序跑一遍：
+
+```bash
+moon run examples/scripted-broker --target native
+```
+
+```
+[ok]   CONNECT / CONNACK
+[ok]   SUBSCRIBE sensors/# → SUBACK
+[ok]   PUBLISH qos1 → PUBACK
+[ok]   PUBLISH qos2 → PUBREC/PUBREL/PUBCOMP
+[ok]   PINGREQ → PINGRESP
+[ok]   UNSUBSCRIBE sensors/# → UNSUBACK
+[ok]   DISCONNECT
+client pushed 8 frame(s)
+```
+
+`client pushed 8 frame(s)` 是两边真实对账的计数（broker 侧记录收到的帧数），
+不是写死的常量——少一帧就说明有一帧没出去。这条路径用可插拔的 `Conn` trait
+绕开真实 socket，所以它在 CI 里也能跑。
+
 ## 手动验证（native 连真 broker）
 
 ```bash

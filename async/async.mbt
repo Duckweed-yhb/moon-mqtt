@@ -237,6 +237,11 @@ pub fn AsyncClient::on_transport_close(self : AsyncClient) -> Unit {
 /// 可写，若沿带到新连接会排在新 CONNECT 之前重复出站。SessionStore 保留，
 /// 权威在途重发仍由后续 `replay_bytes()` 负责。
 pub fn AsyncClient::reconnect(self : AsyncClient) -> Unit {
+  // 解冻：fatal 的语义是「这条连接不可再用」，而 reconnect 的语义正是换一条
+  // 新连接。framer 缓冲由 core.reconnect_bytes() 重置，所以冻结的理由随之消失。
+  // 不清的话 reconnect() 会把 CONNECT 塞进队列、但 feed_bytes 永远早退，
+  // 客户端看起来活着却再也不会推进。
+  self.fatal = None
   self.pending = []
   let bytes = self.core.reconnect_bytes()
   for b in bytes {

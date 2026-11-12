@@ -51,6 +51,24 @@ test "session_present=0 clears inbound qos2 dedupe" {
 }
 
 ///|
+/// 会话丢失时，挂起的 SUBSCRIBE 也必须作废：它们的 packet_id 属于旧会话，
+/// 新会话里这个 id 可能被别的请求占用，迟到的 SUBACK 会把一条早已作废的
+/// 订阅补进本地订阅表，之后每次重连都替它重订。
+test "session_present=0 drops pending subscribes from the old session" {
+  let core = @core.ClientCore::new(@protocol.ConnectPacket::new("guard"))
+  let _ = core.feed([0x20, 0x02, 0x00, 0x00])
+  core.record_outbound_subscribe(7, [
+    @protocol.Subscription::new("a/#", @protocol.qos1()),
+  ])
+  core.on_transport_close()
+  let _ = core.reconnect_bytes()
+  let _ = core.feed([0x20, 0x02, 0x00, 0x00]) // session_present=0
+  // 迟到的 SUBACK（pid 恰好复用）：不能把作废的订阅补记进来
+  let _ = core.feed([0x90, 0x03, 0x00, 0x07, 0x01])
+  assert_eq(core.subscriptions().length(), 0)
+}
+
+///|
 /// 评审回归：已知入站类型的解码失败是协议错误，必须带出原因并触发关闭，
 /// 不能压成一个 "unknown packet type 3"。
 test "malformed inbound frame carries reason and is fatal" {

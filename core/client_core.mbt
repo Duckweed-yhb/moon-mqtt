@@ -503,9 +503,14 @@ pub fn ClientCore::replay_bytes(self : ClientCore) -> Array[Array[Int32]] {
 ///|
 /// 清空会话状态：`session_present=false` 时调用，避免本地僵尸在途
 /// 在下次重连时被重放给已经丢会话的 broker。
+///
+/// 挂起的 SUBSCRIBE 也要一起丢：它们的 packet_id 属于旧会话，新会话里
+/// 这个 id 可能被别的请求占用，迟到的 SUBACK 会把一条早已作废的订阅补进
+/// 本地订阅表，之后每次重连都替它重订。
 pub fn ClientCore::reset_session(self : ClientCore) -> Unit {
   self.session = @session.SessionStore::new()
   self.inbound_qos2 = []
+  self.pending_subscribes = []
 }
 
 ///|

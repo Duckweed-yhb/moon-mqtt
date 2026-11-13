@@ -44,6 +44,15 @@ pub fn encode_subscribe(pkt : SubscribePacket) -> Array[Int32] {
   if valid.length() == 0 {
     return []
   }
+  // §2.3.1：SUBSCRIBE 的 packet identifier 必须在 1..65535。与 PUBLISH、
+  // QoS 控制包编码侧同款守卫：库外构造 pid=0 时直接失败，不把 broker 必须
+  // 按协议错误断连的帧编出去。
+  if pkt.packet_id <= 0 || pkt.packet_id > 0xFFFF {
+    abort(
+      "mqtt: subscribe packet id must be in 1..65535, got " +
+      pkt.packet_id.to_string(),
+    )
+  }
   let body = ByteWriter::new()
   body.push_u16(pkt.packet_id)
   for sub in valid {
@@ -166,6 +175,14 @@ pub fn UnsubscribePacket::new(
 ///|
 /// 编码 UNSUBSCRIBE 为完整报文（含固定头 0xA2）。
 pub fn encode_unsubscribe(pkt : UnsubscribePacket) -> Array[Int32] {
+  // §2.3.1：UNSUBSCRIBE 的 packet identifier 必须在 1..65535，守卫口径与
+  // SUBSCRIBE、PUBLISH 及 QoS 控制包一致。
+  if pkt.packet_id <= 0 || pkt.packet_id > 0xFFFF {
+    abort(
+      "mqtt: unsubscribe packet id must be in 1..65535, got " +
+      pkt.packet_id.to_string(),
+    )
+  }
   let body = ByteWriter::new()
   body.push_u16(pkt.packet_id)
   for t in pkt.topics {
@@ -240,6 +257,19 @@ test "encode_subscribe" {
 }
 
 ///|
+/// 上界 packet id（65535）属于合法范围，编码不应被守卫拦下。
+test "encode_subscribe accepts upper packet id" {
+  let pkt = {
+    packet_id: 0xFFFF,
+    subscriptions: [{ topic: "a/#", qos: QoS::AtMostOnce, }],
+  }
+  let bytes = encode_subscribe(pkt)
+  assert_eq(bytes[0], 0x82)
+  assert_eq(bytes[2], 0xFF)
+  assert_eq(bytes[3], 0xFF)
+}
+
+///|
 test "decode_suback" {
   match decode_suback([0x90, 0x04, 0x00, 0x07, 0x01, 0x80]) {
     Ok(s) => {
@@ -265,6 +295,16 @@ test "unsubscribe roundtrip" {
     Err(e) => fail(e)
   }
   assert_eq(bytes[0], 0xA2)
+}
+
+///|
+/// 上界 packet id（65535）属于合法范围，编码不应被守卫拦下。
+test "encode_unsubscribe accepts upper packet id" {
+  let pkt = UnsubscribePacket::new(0xFFFF, ["a/b"])
+  let bytes = encode_unsubscribe(pkt)
+  assert_eq(bytes[0], 0xA2)
+  assert_eq(bytes[2], 0xFF)
+  assert_eq(bytes[3], 0xFF)
 }
 
 ///|

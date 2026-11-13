@@ -860,17 +860,11 @@ test "subscribe encoding drops invalid filters" {
 
 ///|
 /// 入站 PUBLISH 带通配符属协议错误（§4.7.3）：解码层就拒绝，别交给应用层。
+///
+/// 坏帧在这里手工拼：topic "a/+"（00 03 61 2F 2B）+ payload 01，QoS0 固定头
+/// 0x30、剩余长度 7。encode_publish 现在编码前就拦通配符，不能再用它造坏帧。
 test "decode rejects wildcard topics from broker" {
-  let pkt = @protocol.PublishPacket::new(
-    "a/+",
-    [0x01],
-    @protocol.qos0(),
-    false,
-    false,
-    0,
-  )
-  // encode_publish 不校验（encoding 是纯映射），这里手工造帧验证解码侧。
-  let frame = @protocol.encode_publish(pkt)
+  let frame = [0x30, 0x07, 0x00, 0x03, 0x61, 0x2F, 0x2B, 0x01]
   match @protocol.decode_packet(frame) {
     Err(_) => ()
     Ok(_) => fail("wildcard topic should not decode")

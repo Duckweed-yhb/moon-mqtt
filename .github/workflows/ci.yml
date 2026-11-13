@@ -88,6 +88,10 @@ jobs:
       - name: Run example (scripted-broker)
         run: moon run examples/scripted-broker --target native
 
+      # 拒绝演示：畸形帧 / 非法 topic 必须被拒，且已知类型的解码失败要落成 Fatal。
+      - name: Run example (reject-demo)
+        run: moon run examples/reject_demo --target native
+
   release-meta:
     name: release metadata
     runs-on: ubuntu-latest

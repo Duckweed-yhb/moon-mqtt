@@ -6,6 +6,9 @@
 
 ### Added
 
+- `examples/reject_demo`：把拒绝路径打印出来——QoS1/2 `packet_id=0`、topic 带通配符、QoS0 置 DUP、PINGRESP flags 非零、broker 发来客户端方向的报文、以及畸形帧在状态机里的落点（`MalformedFrame` → `Fatal`）。
+- `DELIVERY.md`：验收条款 vs 证据的对照，并明确区分三层验证强度——纯计算层四后端有自动化测试，`browser/` 与 `transport/`、`client/` 只有手工/示例级验证。
+
 - `core/CoreEvent::MalformedFrame(类型号, 原因)`：已知入站报文的解码失败单独上报，`plan_event` 映射到 `Fatal`（§4.8 要求关闭连接）。此前所有 `Err` 都被压成 `UnknownPacketType` 且丢掉原因文本，一条因 topic 非法被拒的 QoS1 PUBLISH 与「不认识的报文类型」在日志里无法区分。
 
 ### Changed

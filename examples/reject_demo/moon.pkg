@@ -1,0 +1,10 @@
+///|
+/// examples/reject_demo — 畸形报文与非法 topic 的拒绝路径。
+supported_targets = "wasm+wasm-gc+js+native"
+
+pkgtype(kind: "executable")
+
+import {
+  "Duckweed/moon-mqtt/protocol",
+  "Duckweed/moon-mqtt/core",
+}

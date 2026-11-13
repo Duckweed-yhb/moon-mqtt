@@ -4,6 +4,8 @@ MoonBit 写的 MQTT 3.1.1 客户端。浏览器里走 WebSocket，native 上走 
 
 做它的原因很直接：MoonBit 这边缺一个能在浏览器里直连 broker、又把 QoS2 做完整的客户端。
 
+> 交付说明（验收条款 vs 证据、哪些层有自动化测试、哪些只有手工验证）：[DELIVERY.md](./DELIVERY.md)。
+
 | 宿主 | 包 | 形态 |
 |---|---|---|
 | 浏览器（js 后端） | `browser/` | 回调式，publish 支持 QoS0/1/2，断线 1 秒自动重连 |

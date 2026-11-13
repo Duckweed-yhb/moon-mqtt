@@ -86,6 +86,15 @@ pub fn encode_connect(pkt : ConnectPacket) -> Array[Int32] {
   if pkt.client_id == "" && !pkt.clean_session {
     abort("mqtt: empty client id requires clean_session=true")
   }
+  // §3.1.2.11 [MQTT-3.1.2-12]：Password 标志置 1 时 User Name 标志必须置 1；
+  // 反过来 §3.1.2.10 规定 User Name 为 0 时 Password 必须为 0。公开结构体可以
+  // 绕过 with_auth 直接拼出「有密码没用户名」，编码侧先挡下，不把必然被 broker
+  // 当协议错误断连的帧编出去。
+  match (pkt.username, pkt.password) {
+    (None, Some(_)) =>
+      abort("mqtt: password requires username (§3.1.2.11)")
+    _ => ()
+  }
   // 可变头：协议名 + 级别 + 连接标志 + 保持连接
   let vh = ByteWriter::new()
   vh.push_string("MQTT")
@@ -258,6 +267,25 @@ test "encode_connect with auth and will" {
   let flags = bytes[9]
   // clean=0, username(0x80) + password(0x40) + will(0x04) + will retain(0x20) + will qos=1(0x08)
   assert_eq(flags, 0x80 | 0x40 | 0x04 | 0x20 | 0x08)
+}
+
+///|
+/// 只有用户名、不带密码是规范允许的组合：User Name 标志 0x80 置位，
+/// Password 标志 0x40 不置位；反过来「有密码没用户名」在编码侧直接 abort。
+test "encode_connect username without password" {
+  let pkt = {
+    client_id: "c3",
+    keep_alive: 60,
+    clean_session: true,
+    username: Some("u1"),
+    password: None,
+    will_topic: None,
+    will_message: None,
+    will_qos: QoS::AtMostOnce,
+    will_retain: false,
+  }
+  let bytes = encode_connect(pkt)
+  assert_eq(bytes[9], 0x80 | 0x02)
 }
 
 ///|

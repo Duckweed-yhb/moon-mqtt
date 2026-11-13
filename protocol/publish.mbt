@@ -67,6 +67,13 @@ pub fn encode_publish(pkt : PublishPacket) -> Array[Int32] {
   if pkt.qos != QoS::AtMostOnce && pkt.packet_id == 0 {
     abort("mqtt: qos1/qos2 publish needs a nonzero packet id")
   }
+  // §3.3.2.1：topic name 不合法（空串 / 通配符 / NUL）在解码侧本来就拒；
+  // PublishPacket 是公开类型，库外直接构造时编码侧也要同一道守卫，避免把 broker
+  // 必须当协议错误断连的报文编出去。上层 core / client / browser / async 已先校验过。
+  match validate_topic_name(pkt.topic) {
+    Ok(_) => ()
+    Err(e) => abort("mqtt: publish topic invalid: " + e)
+  }
   let body = ByteWriter::new()
   body.push_string(pkt.topic)
   if pkt.qos != QoS::AtMostOnce {

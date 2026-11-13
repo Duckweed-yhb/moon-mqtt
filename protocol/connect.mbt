@@ -95,6 +95,22 @@ pub fn encode_connect(pkt : ConnectPacket) -> Array[Int32] {
       abort("mqtt: password requires username (§3.1.2.11)")
     _ => ()
   }
+  // §3.1.2.9：Will Message 标志只在 Will Topic 标志存在时才有意义；
+  // 反过来「有遗嘱消息没遗嘱主题」是单侧不一致，编码侧先挡下。
+  match (pkt.will_topic, pkt.will_message) {
+    (None, Some(_)) =>
+      abort("mqtt: will message requires will topic (§3.1.2.9)")
+    _ => ()
+  }
+  // 遗嘱主题本质是一条 PUBLISH topic name，通配符 / NUL / 超长同样不允许。
+  match pkt.will_topic {
+    Some(t) =>
+      match validate_topic_name(t) {
+        Ok(_) => ()
+        Err(e) => abort("mqtt: invalid will topic: " + e)
+      }
+    None => ()
+  }
   // 可变头：协议名 + 级别 + 连接标志 + 保持连接
   let vh = ByteWriter::new()
   vh.push_string("MQTT")

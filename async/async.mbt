@@ -193,6 +193,7 @@ pub fn AsyncClient::subscribe(
   }
   let pid = self.core.allocate_control_packet_id()
   if pid == 0 {
+    println("[async] subscribe: out of packet ids")
     return
   }
   let subs = [@protocol.Subscription::new(topic, qos)]

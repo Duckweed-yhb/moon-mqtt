@@ -252,6 +252,22 @@ test "async publish rejects invalid topic instead of dropping silently" {
 }
 
 ///|
+test "async subscribe rejects invalid filter instead of dropping silently" {
+  let client = @async.AsyncClient::new(
+    @protocol.ConnectPacket::new("async-filter"),
+  )
+  let _ = client.drain_pending()
+  client.feed_bytes([0x20, 0x02, 0x00, 0x00])
+  let _ = client.drain_events()
+  // '#' 不在最后一级：编进 SUBSCRIBE 会让 broker 断连，必须本地拒绝。
+  client.subscribe("a/#/b", @protocol.qos1())
+  assert_eq(client.drain_pending().length(), 0)
+  // 合法过滤器照常入队。
+  client.subscribe("a/b", @protocol.qos1())
+  assert_true(client.drain_pending().length() > 0)
+}
+
+///|
 /// 漏调 on_transport_close、直接 reconnect 时，尚未交给 socket 的待发字节
 /// 也必须丢弃：旧连接已不可写，沿带到新连接会排在新 CONNECT 之前重复出站。
 test "reconnect discards undrained pending even without transport close" {

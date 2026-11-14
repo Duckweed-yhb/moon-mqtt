@@ -86,7 +86,7 @@ API：
 | `connect_opts(host, port, opts)` | 自定义 CONNECT：认证、遗嘱、clean_session |
 | `connect_persistent(host, port, client_id)` | clean_session=false，重连后拿回同一个会话 |
 | `on_connect(client, handler)` | 收到 CONNACK 后回调 |
-| `on_suback(client, handler)` | 收到 SUBACK 后回调，适合在这里开始 publish |
+| `on_suback(client, handler)` | 收到 broker 接受全部订阅项的 SUBACK 后回调，适合在这里开始 publish。有任一项返回 0x80 时**不回调**，改走 `report_error`（`suback rejected: ...`），避免把拒绝当成功 |
 | `on_message(client, handler)` | 收到 PUBLISH 时回调 `(topic, payload)` |
 | `subscribe(client, topic, qos)` | 订阅主题（过滤器非法时上报并拒绝） |
 | `unsubscribe(client, topic)` | 退订并同步删本地订阅表——不删的话重连自动重订会把它订回来 |

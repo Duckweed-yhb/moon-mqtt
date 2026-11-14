@@ -75,7 +75,7 @@ moon-mqtt 由七个包组成：四个纯计算包、一个 js 宿主包、两个
 - `connect(host, port, client_id)`：WSS + `clean_session=true`
 - `connect_opts(host, port, opts)`：自定义 CONNECT，可带认证 / 遗嘱 / clean_session
 - `connect_persistent(host, port, client_id)`：`clean_session=false`，重连后拿回同一个会话
-- `on_connect` / `on_suback` / `on_message`：CONNACK、SUBACK、PUBLISH 回调
+- `on_connect` / `on_suback` / `on_message`：CONNACK、SUBACK、PUBLISH 回调。`on_suback` 只在 broker 接受全部订阅项时触发；被拒的 SUBACK（含 0x80）交给 `report_error`；`async` 侧同一张决策表里 `SubackRejected` 也带返回码
 - `subscribe` / `publish` / `disconnect`
 - `publish` 支持 QoS0/1/2：QoS1/2 走 `core.publish()`，packet_id 与在途由 `core/` + `session/` 管理
 - 断线后 1 秒自动重连，最多 3 次；`session_present=1` 时把在途帧 replay 出去，`session_present=0` 时把本地订阅表里的 filter 自动打包成 SUBSCRIBE 重发

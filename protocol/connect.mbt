@@ -91,8 +91,7 @@ pub fn encode_connect(pkt : ConnectPacket) -> Array[Int32] {
   // 绕过 with_auth 直接拼出「有密码没用户名」，编码侧先挡下，不把必然被 broker
   // 当协议错误断连的帧编出去。
   match (pkt.username, pkt.password) {
-    (None, Some(_)) =>
-      abort("mqtt: password requires username (§3.1.2.11)")
+    (None, Some(_)) => abort("mqtt: password requires username (§3.1.2.11)")
     _ => ()
   }
   // §3.1.2.9：Will Message 标志只在 Will Topic 标志存在时才有意义；

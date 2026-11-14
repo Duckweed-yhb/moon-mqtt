@@ -336,6 +336,25 @@ pub fn browser_on_message(bytes : Array[Int32]) -> Unit {
                   None => ()
                 }
               }
+              @core.DispatchAction::SubackRejected(codes) => {
+                // broker 拒绝了订阅：旧实现这里照样打 "suback" 并回调 on_suback，
+                // 使用者完全看不出这次订阅没成。分开处理，并指出被拒的项。
+                let mut rejected = 0
+                let mut i = 0
+                while i < codes.length() {
+                  if codes[i] is @protocol.SubAckCode::Failure {
+                    rejected = rejected + 1
+                  }
+                  i = i + 1
+                }
+                report_error(
+                  "suback rejected: broker refused " +
+                  rejected.to_string() +
+                  " of " +
+                  codes.length().to_string() +
+                  " item(s)",
+                )
+              }
               @core.DispatchAction::Unknown(t) =>
                 println("[browser] unknown packet type " + t.to_string())
               @core.DispatchAction::Ignore => ()

@@ -24,8 +24,12 @@ pub enum DispatchAction {
   Fatal(String)
   /// 派发一条业务消息给使用者：(topic, payload)。
   Deliver(String, Array[Int32])
-  /// SUBACK：调用 on_suback。
+  /// SUBACK：全部订阅项被接受，调用 on_suback。
   Subacked
+  /// SUBACK：broker 对至少一项返回 0x80。调用方不应把这次订阅算作成功，
+  /// 也不该在这里回调 on_suback。带上返回码数组（按 SUBSCRIBE 条目顺序），
+  /// 好让调用方报出「哪几项被拒」。
+  SubackRejected(Array[@protocol.SubAckCode])
   /// 不认识 / 解不出的报文：记录即可，不算致命。
   Unknown(Int32)
 }
@@ -41,7 +45,12 @@ pub fn plan_event(event : CoreEvent) -> DispatchAction {
         other => Refused(other)
       }
     CoreEvent::PublishReceived(p) => Deliver(p.topic, p.payload)
-    CoreEvent::SubackReceived(_) => Subacked
+    CoreEvent::SubackReceived(s) =>
+      if s.all_accepted() {
+        Subacked
+      } else {
+        SubackRejected(s.codes())
+      }
     CoreEvent::PingRespReceived => Ignore
     CoreEvent::UnknownPacketType(t) => Unknown(t)
     CoreEvent::MalformedFrame(_, reason) => Fatal(reason)

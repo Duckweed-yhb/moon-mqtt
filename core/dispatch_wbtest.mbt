@@ -29,6 +29,20 @@ fn suback_event(pid : Int32, code : Int32) -> CoreEvent {
 }
 
 ///|
+/// 多项 SUBACK：`0x90, len=2+n, pid_hi, pid_lo, code...`。
+/// 混合返回码只能这样造，单项 helper 覆盖不到「哪项被拒」。
+fn suback_event_codes(pid : Int32, codes : Array[Int32]) -> CoreEvent {
+  let bytes : Array[Int32] = [0x90, 0x02 + codes.length(), 0x00, pid]
+  for c in codes {
+    bytes.push(c)
+  }
+  match @protocol.decode_packet(bytes) {
+    Ok(@protocol.IncomingPacket::Suback(s)) => CoreEvent::SubackReceived(s)
+    _ => abort("multi-code SUBACK bytes did not decode")
+  }
+}
+
+///|
 test "dispatch: accepted connack maps to connected with session flag" {
   assert_true(
     plan_event(connack_event(0x00, 0x00)) is DispatchAction::Connected(false),
@@ -91,6 +105,30 @@ test "dispatch: suback is not fatal" {
   let action = plan_event(suback_event(3, 0x01))
   assert_true(action is DispatchAction::Subacked)
   assert_false(action.needs_close())
+}
+
+///|
+test "dispatch: rejected suback is reported with its return codes" {
+  // 0x80 出现在任何一项：动作必须是 SubackRejected，而不是「订阅成功」。
+  let action = plan_event(suback_event(4, 0x80))
+  match action {
+    DispatchAction::SubackRejected(codes) => {
+      assert_eq(codes.length(), 1)
+      assert_true(codes[0] is @protocol.SubAckCode::Failure)
+    }
+    _ => fail("rejected suback must not map to Subacked")
+  }
+  assert_false(action.needs_close())
+  // 混合返回码：每一项都要原样带出来，调用方才知道哪项没成。
+  let mixed = plan_event(suback_event_codes(5, [0x01, 0x80]))
+  match mixed {
+    DispatchAction::SubackRejected(codes) => {
+      assert_eq(codes.length(), 2)
+      assert_true(codes[0] is @protocol.SubAckCode::Success1)
+      assert_true(codes[1] is @protocol.SubAckCode::Failure)
+    }
+    _ => fail("mixed suback must map to SubackRejected")
+  }
 }
 
 ///|

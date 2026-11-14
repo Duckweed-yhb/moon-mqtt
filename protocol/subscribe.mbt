@@ -114,6 +114,26 @@ pub fn Suback::all_accepted(self : Suback) -> Bool {
 }
 
 ///|
+/// 订阅项对应的返回码数组（按 SUBSCRIBE 里的条目顺序，1:1）。
+/// 只读视图：调用方拿到它来判断「哪几项被拒」，不要去改它。
+pub fn Suback::codes(self : Suback) -> Array[SubAckCode] {
+  return self.codes
+}
+
+///|
+/// 被拒绝的项数（0x80 的个数）。胶水层用它决定日志里报几条失败。
+pub fn Suback::rejected_count(self : Suback) -> Int32 {
+  let mut n = 0
+  for c in self.codes {
+    match c {
+      SubAckCode::Failure => n = n + 1
+      _ => ()
+    }
+  }
+  return n
+}
+
+///|
 /// 解码 SUBACK。data 为完整报文。
 pub fn decode_suback(data : Array[Int32]) -> Result[Suback, String] {
   if data.length() < 5 {
@@ -327,6 +347,24 @@ test "suback with multi byte remaining length parses correctly" {
       assert_true(s.all_accepted())
     }
     Err(e) => fail("multi-byte RL suback failed: " + e)
+  }
+}
+
+///|
+/// `codes()` / `rejected_count()`：混合返回码时，逐项对齐 SUBSCRIBE 的条目顺序，
+/// 拒绝计数只数 0x80。胶水层靠这两个读数报「哪几项被拒」。
+test "suback codes accessor keeps order and counts failures" {
+  match decode_suback([0x90, 0x05, 0x00, 0x09, 0x00, 0x01, 0x80]) {
+    Ok(s) => {
+      let codes = s.codes()
+      assert_eq(codes.length(), 3)
+      assert_true(codes[0] is SubAckCode::Success0)
+      assert_true(codes[1] is SubAckCode::Success1)
+      assert_true(codes[2] is SubAckCode::Failure)
+      assert_eq(s.rejected_count(), 1)
+      assert_false(s.all_accepted())
+    }
+    Err(e) => fail("mixed suback failed: " + e)
   }
 }
 

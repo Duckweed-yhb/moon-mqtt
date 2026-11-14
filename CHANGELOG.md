@@ -13,7 +13,7 @@
 
 ### Changed
 
-- `core/plan_event` 不再把 `SubackReceived` 一律映射成 `Subacked`：返回码里有 0x80 时映射到新变体 `SubackRejected(Array[SubAckCode])`，把「哪几项被拒」原样交给胶水层。旧实现丢掉了返回码，于是 `browser` 在 broker 拒绝时照样打 `[browser] suback`、照样回调 `on_suback`——使用者以为订阅成功，之后收不到消息也查不出原因。**这是对外行为变更**：订阅被拒时 `on_suback` 不再触发，改为 `report_error("suback rejected: broker refused N of M item(s)")`；`SubackHandler` 的类型签名不变。`protocol/Suback` 补两个只读访问器 `codes()` / `rejected_count()`，`DispatchAction` 多一个变体（`match` 的地方编译器会强制补分支）。补 1 条回归覆盖单项 0x80 与混合返回码两种情况（native 208 → 209）。
+- `core/plan_event` 不再把 `SubackReceived` 一律映射成 `Subacked`：返回码里有 0x80 时映射到新变体 `SubackRejected(Array[SubAckCode])`，把「哪几项被拒」原样交给胶水层。旧实现丢掉了返回码，于是 `browser` 在 broker 拒绝时照样打 `[browser] suback`、照样回调 `on_suback`——使用者以为订阅成功，之后收不到消息也查不出原因。**这是对外行为变更**：订阅被拒时 `on_suback` 不再触发，改为 `report_error("suback rejected: broker refused N of M item(s)")`；`SubackHandler` 的类型签名不变。`protocol/Suback` 补两个只读访问器 `codes()` / `rejected_count()`，`DispatchAction` 多一个变体（`match` 的地方编译器会强制补分支）。补 2 条回归：`protocol/` 锁混合返回码的顺序与拒绝计数，`core/` 锁单项 0x80 与混合返回码的映射（native 208 → 210）。
 - 全部枚举的派生写法从 `} derive(...)` 迁到 `#derive(...)` 前缀（8 处、7 个文件）。旧写法在新工具链上是 `deprecated_syntax`，`--deny-warn` 会直接判红；新写法需要 moon 0.1.20261104 及以上，因此**最低工具链版本随之提高**。
 - CI 的 `moon fmt --check` 从 advisory 恢复为阻断式，`check --target js` 恢复 `--deny-warn`。官方只对外提供 `binaries/latest`（按版本号取产物一律 403），CI 无法钉版本，只能与本地同步到同一工具链；恢复严格检查的前提正是这一点。
 

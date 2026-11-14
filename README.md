@@ -258,7 +258,7 @@ sequenceDiagram
 - [x] 浏览器 MQTT 保活：`browser_tick` 由 JS 每秒驱动，每 `keep_alive/2` 秒发 PINGREQ，连续 3 次无 PINGRESP 主动断开重连
 - [x] 事件 → 动作的决策表：`core/plan_event` 把「该不该关连接、该回调谁」做成纯函数，`browser/` 与 `async/` 共用同一张表
 - [x] 主题校验（§4.7）：publish 的 topic name 拒绝空串 / 通配符 / U+0000；subscribe 的过滤器拒绝 `a/#/b`、`a/x+` 这类越界写法；解码侧同样拒绝 broker 发来的非法 topic
-- [x] 四后端测试全绿（2026-11-11 实测）：wasm 153/153、wasm-gc 153/153、js 153/153、native 193/193
+- [x] 四后端测试全绿（2026-11-14 实测）：wasm 169/169、wasm-gc 169/169、js 169/169、native 210/210
 - [x] `moon check --deny-warn` 四个后端 0 警告
 - [x] 发布到 mooncakes（0.3.14）
 
@@ -267,10 +267,10 @@ sequenceDiagram
 ```bash
 moon check
 moon check --target js --deny-warn   # 0 警告
-moon test --target wasm              # 153/153
-moon test --target wasm-gc           # 153/153
-moon test --target js                # 153/153
-moon test --target native            # 193/193
+moon test --target wasm              # 169/169
+moon test --target wasm-gc           # 169/169
+moon test --target js                # 169/169
+moon test --target native            # 210/210
 moon run examples/pubsub
 moon run examples/resume
 pwsh scripts/build-demo.ps1          # 浏览器 demo
@@ -332,9 +332,9 @@ mosquitto_sub -h 127.0.0.1 -t 'sensors/#' -v
 - **坏协议帧（已修，2026-11-10）**：`core/Framer` 现在区分半包与畸形头。畸形头（保留报文类型、剩余长度超 4 字节）或缓冲超过协议最大帧时，清空缓冲并返回 `Err`；`ClientCore::feed` 把它转成 `FramerError` 事件，调用方据此断开连接。半包仍按原语义等下一批字节。
 - **读超时**：单次 socket 读默认 5 秒（`wait_read`），CONNACK/PUBACK/PINGRESP 等同步等待不会永久挂起。跨公网 / 大报文体 / broker 回包慢时用 `connect_opts_with_timeout` 或 `connect_with_conn_timeout` 放宽；读超时会把连接标成 `desynced`（帧边界已丢），只能重连，所以宁可设宽一些。
 - **浏览器自动重连上限**：`browser/` 断线后 1 秒重连，**连续失败**最多 3 次；每次连上成功即把计数归零，长期在线不会耗尽配额。连续 3 次失败后刷新页面才会重新建立连接。
-- **`client/` 层测试**：36 条白盒单测（`client/client_wbtest.mbt`），经 `Conn` 接缝注入脚本化假连接，覆盖 CONNECT/CONNACK 各分支、QoS0/1/2 发布握手、SUBACK、poll 派发与 QoS2 去重、自动心跳、断开、分帧上下限、握手等待期间（含 QoS2 等 PUBREC、等 PUBCOMP 两个等待点）的插帧派发（当前实测 wasm-gc 153 / native 193）。native + C FFI 无法在 wasm 后端实例化。
+- **`client/` 层测试**：36 条白盒单测（`client/client_wbtest.mbt`），经 `Conn` 接缝注入脚本化假连接，覆盖 CONNECT/CONNACK 各分支、QoS0/1/2 发布握手、SUBACK、poll 派发与 QoS2 去重、自动心跳、断开、分帧上下限、握手等待期间（含 QoS2 等 PUBREC、等 PUBCOMP 两个等待点）的插帧派发（当前实测 wasm-gc 169 / native 210）。native + C FFI 无法在 wasm 后端实例化。
 - **native 重连的入站 QoS2 去重**：`reconnect` 在 `session_present=1` 时保留旧客户端的 `inbound_qos2` 表，避免 broker 重发「已派发、PUBREL 尚未完成」的 PUBLISH 被重复派发；`session_present=0` 时清空。这条路径需要真实 TCP，未纳入假连接单测。
-- **`browser/` 层**：WebSocket 的 IO 仍然没有自动测试（依赖 `extern "js"`，只能靠 `docs/demo/` 手工验证与 `docs/CASES.md` 的 I/O 记录；改 `browser/` 后必须重跑 `scripts/build-demo.ps1` 并手工回归 demo 页）。但**决策层已有单测**：事件 → 动作的映射统一走 `core/plan_event`（`core/dispatch_wbtest.mbt` 7 条），拒绝 CONNACK 与畸形帧都必须走「关连接」分支，不会再被 `_ => ()` 静默吞掉。
+- **`browser/` 层**：WebSocket 的 IO 仍然没有自动测试（依赖 `extern "js"`，只能靠 `docs/demo/` 手工验证与 `docs/CASES.md` 的 I/O 记录；改 `browser/` 后必须重跑 `scripts/build-demo.ps1` 并手工回归 demo 页）。但**决策层已有单测**：事件 → 动作的映射统一走 `core/plan_event`（`core/dispatch_wbtest.mbt` 8 条），拒绝 CONNACK 与畸形帧都必须走「关连接」分支，被拒的 SUBACK 必须走 `SubackRejected` 而不是「订阅成功」，不会再被 `_ => ()` 静默吞掉。
 - **畸形帧后的收尾（2026-11-10 补）**：`ClientCore::feed` 产出 `FramerError` 之后，`browser/` 现在会关 WebSocket 并回调 `on_error`，`async/` 会冻结实例并让 `AsyncClient::fatal()` 返回原因；此前两层都把它当普通事件忽略，与「调用方应断开」的约定不符。
 - **MQTT 5.0 本期不做**：CONNECT/PUBLISH properties、CONNACK reason code 等基础字段列入 11–1 月维护计划；完整 5.0 与 native TLS 视工具链在 2027 评估（浏览器侧的 TLS 由浏览器负责，不属本项目范围）。
 

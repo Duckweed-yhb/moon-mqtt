@@ -19,8 +19,8 @@
 
 ```bash
 moon check --deny-warn --target native   # 四个目标逐个跑
-moon test --target native                # 201/201
-moon test --target wasm-gc               # 161/161
+moon test --target native                # 210/210
+moon test --target wasm-gc               # 169/169
 moon run examples/scripted-broker --target native   # 端到端时序，末行 8 帧对账
 moon run examples/reject_demo --target native       # 每条拒绝路径
 ```
@@ -28,7 +28,7 @@ moon run examples/reject_demo --target native       # 每条拒绝路径
 结构化证据分三层，强度不同，不要混着说：
 
 1. **纯计算层**（`protocol/` `session/` `core/`）：wasm / wasm-gc / js / native 四后端可测，
-   当前各 161 条（native 另含 client/transport 用例，共 201）。
+   当前各 169 条（native 另含 client/transport 用例，共 210）。
 2. **浏览器层**（`browser/` + JS 胶水）：**没有自动化测试**。端到端证据是 2026-11-04 用
    无头 Chrome 手工跑过一次（首连订阅、publish QoS1、收消息、强制断开、重连后自动重订），
    记录在 README 与 `docs/CASES.md`。

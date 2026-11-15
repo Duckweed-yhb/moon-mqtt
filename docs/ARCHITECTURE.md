@@ -158,4 +158,4 @@ broker ──WebSocket──► JS onmessage
 | `examples/browser-demo` | - | - | ✅ | - |
 | `examples/ws-spike` | - | - | ✅ | - |
 
-四后端测试全绿（2026-11-14 实测，工具链 0.1.20261104）：wasm 169/169、wasm-gc 169/169、js 169/169、native 210/210；`moon check --deny-warn` 四个后端 0 警告，CI 同口径。纯计算层四后端可测，`browser/` 与两个浏览器示例只编 js，`transport/` 与 `client/` 只编 native。
+四后端测试全绿（2026-11-14 实测，工具链 0.1.20261104）：wasm 173/173、wasm-gc 173/173、js 173/173、native 213/213；`moon check --deny-warn` 四个后端 0 警告，CI 同口径。纯计算层四后端可测，`browser/` 与两个浏览器示例只编 js，`transport/` 与 `client/` 只编 native。

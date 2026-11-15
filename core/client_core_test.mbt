@@ -191,6 +191,49 @@ test "framer rejects a remaining length encoded in more than 4 bytes" {
 }
 
 ///|
+test "framer rejects a frame whose declared length exceeds the limit" {
+  let f = @core.Framer::new_limited(64)
+  assert_eq(f.limit(), 64)
+  // 0x30 是 PUBLISH QoS0，声明剩余长度 100 字节，整帧 102 > 64
+  match f.feed([0x30, 0x64]) {
+    Ok(_) => fail("expected Err for a frame larger than the limit")
+    Err(e) => assert_true(e.contains("exceeds limit"))
+  }
+  // 拒绝发生在攒载荷之前，缓冲里不留字节
+  assert_eq(f.len(), 0)
+}
+
+///|
+test "framer still cuts frames under a tightened limit" {
+  let f = @core.Framer::new_limited(64)
+  // 两条 CONNACK 都在限内，一次喂进来照常切开
+  match f.feed([0x20, 0x02, 0x00, 0x00, 0x20, 0x02, 0x00, 0x00]) {
+    Ok(frames) => assert_eq(frames.length(), 2)
+    Err(e) => fail(e)
+  }
+  assert_eq(f.len(), 0)
+}
+
+///|
+test "client core surfaces framer error when one frame exceeds the limit" {
+  let core = @core.ClientCore::new_with_frame_limit(
+    @protocol.ConnectPacket::new("core-test"),
+    64,
+  )
+  match core.feed([0x30, 0x64]) {
+    (events, out) => {
+      assert_eq(out.length(), 0)
+      assert_eq(events.length(), 1)
+      match events[0] {
+        @core.CoreEvent::FramerError(e) =>
+          assert_true(e.contains("exceeds limit"))
+        _ => fail("expected FramerError")
+      }
+    }
+  }
+}
+
+///|
 test "framer splits many frames from a single feed" {
   let f = @core.Framer::new()
   // 10 条 PINGREQ（0xC0 0x00），一次喂进来

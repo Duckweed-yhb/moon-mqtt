@@ -121,6 +121,26 @@ pub fn ClientCore::new(opts : @protocol.ConnectPacket) -> ClientCore {
 }
 
 ///|
+/// 与 `new` 相同，但把帧长上限收紧到 `limit`：对端声明的剩余长度超过它时，
+/// `feed` 立刻报 `FramerError`，不把载荷攒进缓冲。默认上限是协议上限
+/// （约 256 MB），不希望被单帧拖到这个量级的调用方用这个构造。
+pub fn ClientCore::new_with_frame_limit(
+  opts : @protocol.ConnectPacket,
+  limit : Int32,
+) -> ClientCore {
+  return {
+    opts,
+    state: CoreState::Connecting,
+    framer: Framer::new_limited(limit),
+    pending_pings: 0,
+    session: @session.SessionStore::new(),
+    inbound_qos2: [],
+    subscriptions: [],
+    pending_subscribes: [],
+  }
+}
+
+///|
 /// 当前状态（只读，供测试 / 胶水层查询）。
 pub fn ClientCore::state(self : ClientCore) -> CoreState {
   return self.state

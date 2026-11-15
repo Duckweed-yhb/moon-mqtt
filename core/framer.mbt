@@ -24,11 +24,39 @@ let max_frame_bytes = 268435460
 ///|
 pub struct Framer {
   buf : Array[Int32]
+  /// 允许的最大帧长（含固定头）。默认是协议上限，可经 `new_limited` 收紧。
+  limit : Int32
+}
+
+///|
+/// 协议允许的最大帧长，作为 `Framer::new()` 的默认上限。
+pub fn Framer::default_limit() -> Int32 {
+  max_frame_bytes
 }
 
 ///|
 pub fn Framer::new() -> Framer {
-  return { buf: [], }
+  return { buf: [], limit: max_frame_bytes, }
+}
+
+///|
+/// 带帧长上限的构造：对端声明的剩余长度一旦超过 `limit`，`feed` 立刻报错，
+/// 不把载荷攒进缓冲。`limit` 小于 2 时钳到 2（固定头最短就是这么长）。
+pub fn Framer::new_limited(limit : Int32) -> Framer {
+  let capped = if limit < 2 {
+    2
+  } else if limit > max_frame_bytes {
+    max_frame_bytes
+  } else {
+    limit
+  }
+  return { buf: [], limit: capped, }
+}
+
+///|
+/// 当前允许的最大帧长（含固定头）。
+pub fn Framer::limit(self : Framer) -> Int32 {
+  return self.limit
 }
 
 ///|
@@ -52,8 +80,8 @@ fn is_partial(err : String) -> Bool {
 ///|
 /// 把新字节追加到缓冲，循环尝试切出完整帧，返回完整帧列表。
 ///
-/// 返回 `Err` 表示帧组装进入不可恢复状态（畸形固定头或缓冲超限），
-/// 此时缓冲已清空，调用方应断开连接而不是继续读。
+/// 返回 `Err` 表示帧组装进入不可恢复状态（畸形固定头、单帧超过 `limit`、
+/// 或缓冲超限），此时缓冲已清空，调用方应断开连接而不是继续读。
 pub fn Framer::feed(
   self : Framer,
   bytes : Array[Int32],
@@ -62,7 +90,7 @@ pub fn Framer::feed(
   for b in bytes {
     self.buf.push(b)
   }
-  if self.buf.length() > max_frame_bytes {
+  if self.buf.length() > self.limit {
     self.buf.clear()
     return Err("framer buffer overflow")
   }
@@ -83,6 +111,12 @@ pub fn Framer::feed(
         }
       Ok((_t, _flags, rlen, header_end)) => {
         let total = header_end - offset + rlen
+        if total > self.limit {
+          // 声明长度本身就超预算：立刻拒绝，不把载荷攒进缓冲。上限是协议
+          // 上限时这一条不会命中，只有收紧过 limit 的实例才走这里。
+          self.buf.clear()
+          return Err("framer: frame exceeds limit " + self.limit.to_string())
+        }
         if self.buf.length() - offset < total {
           // 半包：剩余长度已知但可变头 + 载荷还没到齐
           partial = true

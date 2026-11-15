@@ -7,6 +7,7 @@
 ### Added
 
 - `examples/reject_demo`：把拒绝路径打印出来——QoS1/2 `packet_id=0`、topic 带通配符、QoS0 置 DUP、PINGRESP flags 非零、broker 发来客户端方向的报文、以及畸形帧在状态机里的落点（`MalformedFrame` → `Fatal`）。
+- `Framer::new_limited(limit)` / `Framer::limit()` 与 `ClientCore::new_with_frame_limit(opts, limit)`：帧长上限从写死的协议上限（约 256 MB）改成可收紧。旧实现只在缓冲已经超过上限时返回 `framer buffer overflow`，对端只要发一帧 `30 FF FF FF 7F`（声明 268 MB 载荷）然后不再发送，本端就会一直往缓冲里攒字节，直到攒满 256 MB 才报错。新实现在解析出固定头后先比 `total > limit`，超了立刻返回 `framer: frame exceeds limit N` 并清缓冲，不攒载荷；`Framer::new()` 的默认上限仍是协议上限，已有调用方行为不变。补 3 条回归（超限立刻拒且缓冲清空、限内照常切两帧、`ClientCore` 把它落成 `FramerError` 事件）。
 - `DELIVERY.md`：验收条款 vs 证据的对照，并明确区分三层验证强度——纯计算层四后端有自动化测试，`browser/` 与 `transport/`、`client/` 只有手工/示例级验证。
 
 - `core/CoreEvent::MalformedFrame(类型号, 原因)`：已知入站报文的解码失败单独上报，`plan_event` 映射到 `Fatal`（§4.8 要求关闭连接）。此前所有 `Err` 都被压成 `UnknownPacketType` 且丢掉原因文本，一条因 topic 非法被拒的 QoS1 PUBLISH 与「不认识的报文类型」在日志里无法区分。

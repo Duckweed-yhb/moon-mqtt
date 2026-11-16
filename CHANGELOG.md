@@ -20,6 +20,7 @@
 
 ### Fixed
 
+- `core/ClientCore::feed` 在 Framer 报致命错误（畸形固定头、缓冲超限）后仍把状态留在 `Connected`：帧边界已经错位，后续 `publish` 与保活照样往这条连接写包，而 socket 那头早已不可用。现在该分支上报 `FramerError` 的同时把状态退回 `Disconnected`，socket 关闭仍由调用方做（核心层不持 fd）。补 1 条回归：握手到 `Connected` 后喂五字节剩余长度编码，断言事件、状态与 `publish` 返回空；`async` 的冻结用例同步改断言 `Disconnected`。计数 173/213 → 174/214。
 - `client/handshake` 等待 CONNACK 此前仍用默认 5 秒超时，忽略 `connect_opts_with_timeout` 传入并归一后的超时；握手读现在也用该超时，与「读超时贯穿握手」的声明一致。回归由 `FakeConn` 记录每次 `wait_read` 收到的超时值，覆盖显式 1234 与非正回退 5000 两条分支。
 - `core` 在 CONNACK `session_present=0` 时不清会话状态：入站 QoS2 去重表残留，新会话里 packet_id 被复用时那条消息只回 PUBREC 不派发（只判「重复投递」），消息永久丢失且零错误；出站在途清单也会被重放给已经丢会话的 broker。现在按 §4.4 一并作废。`browser` / `async` / `client` 三层本来就各自调了 `reset_session()`，出问题的是直接使用 `@core.ClientCore` 的路径（仓库自带的 `examples/ws-spike` 就是这种用法）。
 - `session/on_puback` / `on_pubcomp` 不校验握手阶段：一条 QoS2 在 `WaitPubrec` 阶段收到 PUBACK 也会被删掉，PUBREL 永远不发，QoS2 静默降级成至多一次。现在只清阶段匹配的条目（`on_pubrec` 本来就是这么做的）。

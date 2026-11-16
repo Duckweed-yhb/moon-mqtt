@@ -234,6 +234,39 @@ test "client core surfaces framer error when one frame exceeds the limit" {
 }
 
 ///|
+test "fatal framer error drops the core back to disconnected" {
+  let core = @core.ClientCore::new(@protocol.ConnectPacket::new("core-test"))
+  // 先正常握手到 Connected
+  match core.feed([0x20, 0x02, 0x00, 0x00]) {
+    (events, _) => assert_eq(events.length(), 1)
+  }
+  match core.state() {
+    @core.CoreState::Connected => ()
+    _ => fail("expected Connected after CONNACK")
+  }
+  // 五个字节的剩余长度编码：decode_remaining_length 只吃 4 个字节，
+  // 第 5 个字节还在高位，属于畸形头，framer 判定不可恢复
+  match core.feed([0x30, 0xFF, 0xFF, 0xFF, 0xFF, 0x7F]) {
+    (events, out) => {
+      assert_eq(out.length(), 0)
+      assert_eq(events.length(), 1)
+      match events[0] {
+        @core.CoreEvent::FramerError(e) => assert_true(e.contains("framer"))
+        _ => fail("expected FramerError")
+      }
+    }
+  }
+  // 字节流已错位，核心层不能继续装作连着
+  match core.state() {
+    @core.CoreState::Disconnected => ()
+    _ => fail("fatal framer error should drop the core to Disconnected")
+  }
+  // 断开后 publish 不再往坏连接上写包
+  let bytes = core.publish("a/b", [0x01], @protocol.qos1())
+  assert_eq(bytes.length(), 0)
+}
+
+///|
 test "framer splits many frames from a single feed" {
   let f = @core.Framer::new()
   // 10 条 PINGREQ（0xC0 0x00），一次喂进来

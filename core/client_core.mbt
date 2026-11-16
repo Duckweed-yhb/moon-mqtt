@@ -190,8 +190,12 @@ pub fn ClientCore::feed(
   let frames = match self.framer.feed(bytes) {
     Ok(f) => f
     Err(e) => {
-      // 畸形头 / 缓冲超限：帧组装已不可恢复，上报后由调用方断开。
+      // 畸形头 / 缓冲超限：帧组装已不可恢复。上报事件，同时把状态退回
+      // Disconnected - 字节流已经对不齐，继续留在 Connected 会让 publish /
+      // 保活继续往一条错位的连接上写包，而 socket 那头实际已经不可用。
+      // 真正的 socket 关闭仍由调用方做（核心层不持有 fd）。
       events.push(CoreEvent::FramerError(e))
+      self.state = CoreState::Disconnected
       return (events, outgoing)
     }
   }

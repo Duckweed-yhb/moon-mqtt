@@ -231,7 +231,8 @@ test "malformed frame sets fatal and freezes the client" {
   // 之后继续喂合法 CONNACK 也不许再生效（冻结）
   client.feed_bytes([0x20, 0x02, 0x00, 0x00])
   assert_eq(client.drain_events().length(), 0)
-  assert_true(client.state() is @core.CoreState::Connecting)
+  // 帧边界已丢，核心层不再假装连着：状态退回 Disconnected
+  assert_true(client.state() is @core.CoreState::Disconnected)
 }
 
 ///|

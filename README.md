@@ -337,6 +337,7 @@ mosquitto_sub -h 127.0.0.1 -t 'sensors/#' -v
 - **native 重连的入站 QoS2 去重**：`reconnect` 在 `session_present=1` 时保留旧客户端的 `inbound_qos2` 表，避免 broker 重发「已派发、PUBREL 尚未完成」的 PUBLISH 被重复派发；`session_present=0` 时清空。这条路径需要真实 TCP，未纳入假连接单测。
 - **`browser/` 层**：WebSocket 的 IO 仍然没有自动测试（依赖 `extern "js"`，只能靠 `docs/demo/` 手工验证与 `docs/CASES.md` 的 I/O 记录；改 `browser/` 后必须重跑 `scripts/build-demo.ps1` 并手工回归 demo 页）。但**决策层已有单测**：事件 → 动作的映射统一走 `core/plan_event`（`core/dispatch_wbtest.mbt` 8 条），拒绝 CONNACK 与畸形帧都必须走「关连接」分支，被拒的 SUBACK 必须走 `SubackRejected` 而不是「订阅成功」，不会再被 `_ => ()` 静默吞掉。
 - **畸形帧后的收尾（2026-11-10 补）**：`ClientCore::feed` 产出 `FramerError` 之后，`browser/` 现在会关 WebSocket 并回调 `on_error`，`async/` 会冻结实例并让 `AsyncClient::fatal()` 返回原因；此前两层都把它当普通事件忽略，与「调用方应断开」的约定不符。
+- **解码级协议错误的收尾（2026-11-17 补）**：`Framer` 能切出完整帧、但 `decode_packet` 报错（例如 PUBLISH 的主题为空、含通配符，或报文长度与内容对不上）时，`ClientCore::feed` 记一条 `MalformedFrame`，把核心状态退回 `Disconnected` 并立刻停止处理同一批里的后续帧 - 后面的字节不再当成新报文解析，`publish` 也不再往这条连接写包。回归用例：`malformed frame stops subsequent delivery in same batch`。
 - **MQTT 5.0 本期不做**：CONNECT/PUBLISH properties、CONNACK reason code 等基础字段列入 11–1 月维护计划；完整 5.0 与 native TLS 视工具链在 2027 评估（浏览器侧的 TLS 由浏览器负责，不属本项目范围）。
 
 ## 许可证

@@ -207,6 +207,8 @@ pub fn ClientCore::feed(
         // 被拒的 QoS1 PUBLISH 与「不认识的报文类型」在日志里长得一模一样。
         if is_inbound_type(frame[0] >> 4) {
           events.push(CoreEvent::MalformedFrame(frame[0] >> 4, e))
+          self.state = CoreState::Disconnected
+          return (events, outgoing)
         } else {
           events.push(CoreEvent::UnknownPacketType(frame[0] >> 4))
         }

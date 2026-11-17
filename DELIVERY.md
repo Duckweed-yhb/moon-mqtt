@@ -9,7 +9,7 @@
 | 条款 | 状态 | 证据（可复现） |
 |---|---|---|
 | MoonBit 为主 | ✅ | 全部 MoonBit；`transport/` 依赖薄 C FFI socket，仅此一处 |
-| 仓库公开、提交清晰 | ✅ | 136 commits，按 protocol / session / core / client / browser / async 分层 |
+| 仓库公开、提交清晰 | ✅ | 提交数以 `git log` 为准，按 protocol / session / core / client / browser / async 分层 |
 | 能够运行 | ✅ | `moon run examples/scripted-broker --target native` 一行跑完 CONNECT→…→DISCONNECT |
 | 工作有效（本期实质新增） | ✅ | 本轮新增事件→动作决策表、退订 API、可插拔 `Conn`、畸形帧与错误上报等 |
 | 开源合规 | ✅ | MIT + `PROVENANCE.md`（代码来源、第三方参考、AI 使用范围） |

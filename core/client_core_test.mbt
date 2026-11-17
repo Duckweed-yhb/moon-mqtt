@@ -840,7 +840,7 @@ test "suback accepted auto records pending subscribe" {
   core.record_outbound_subscribe(1, subs)
   assert_eq(core.subscriptions().length(), 0)
   // 收 SUBACK(pid=1, accepted)
-  match core.feed(suback_accepted_frame()) {
+  match core.feed([0x90, 0x04, 0x00, 0x01, 0x01, 0x00]) {
     (events, outgoing) => {
       assert_eq(events.length(), 1)
       assert_eq(outgoing.length(), 0)
@@ -1065,7 +1065,7 @@ test "unsubscribe keeps the sibling subscription in the same frame" {
   let _ = core.unsubscribe("a/b")
   let hi = (pid >> 8) & 0xFF
   let lo = pid & 0xFF
-  let _ = core.feed([0x90, 0x03, hi, lo, 0x01])
+  let _ = core.feed([0x90, 0x04, hi, lo, 0x80, 0x00])
   let subs = core.subscriptions()
   assert_eq(subs.length(), 1)
   assert_eq(subs[0].topic, "c/d")

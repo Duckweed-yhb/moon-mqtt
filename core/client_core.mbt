@@ -102,7 +102,7 @@ pub struct ClientCore {
   /// 出站 SUBSCRIBE 在途映射：pid -> 该次订阅携带的 Subscription 列表。
   /// 胶水层编码 SUBSCRIBE 后调 `record_outbound_subscribe(pid, subs)` 登记，
   /// 收到对应 SUBACK 且 `all_accepted()` 为 true 时自动落库并清掉此条目。
-  mut pending_subscribes : Array[(Int32, Array[@protocol.Subscription])]
+  mut pending_subscribes : Array[(Int32, Array[@protocol.Subscription?])]
 }
 
 ///|
@@ -260,8 +260,7 @@ pub fn ClientCore::feed(
             // 无论成败都要把 pending 条目摘掉：以前只在 all_accepted 时才摘，
             // 失败那次会永远挂在 pending_subscribes 里——既泄漏内存，又会让
             // 之后同一个 pid 的 SUBACK 把这条失败的订阅补记进订阅表。
-            let accepted = s.all_accepted()
-            self.commit_pending_subscribe(s.packet_id, accepted)
+            self.commit_pending_subscribe(s.packet_id, s.codes())
             events.push(CoreEvent::SubackReceived(s))
           }
           @protocol.IncomingPacket::PingResp => {
@@ -373,26 +372,29 @@ pub fn ClientCore::record_subscription(
 ///|
 /// 登记一条出站 SUBSCRIBE：编码完 SUBSCRIBE 帧后由胶水层调用，
 /// 把 pid 和该次订阅携带的 Subscription 列表挂起。收到对应 SUBACK 且
-/// `all_accepted()` 为 true 时，feed() 会自动把这些订阅落库并清掉此条目。
+/// feed() 会逐项保存成功的订阅并清掉此条目。
 pub fn ClientCore::record_outbound_subscribe(
   self : ClientCore,
   pid : Int32,
   subs : Array[@protocol.Subscription],
 ) -> Unit {
   // 同 pid 已存在时先替换（理论上 pid 不会复用，但保险起见）。
-  let kept : Array[(Int32, Array[@protocol.Subscription])] = []
+  let kept : Array[(Int32, Array[@protocol.Subscription?])] = []
   for entry in self.pending_subscribes {
     if entry.0 != pid {
       kept.push(entry)
     }
   }
-  kept.push((pid, subs))
+  let pending : Array[@protocol.Subscription?] = []
+  for sub in subs {
+    pending.push(Some(sub))
+  }
+  kept.push((pid, pending))
   self.pending_subscribes = kept
 }
 
 ///|
-/// SUBACK 到达后调用：摘掉 pid 对应的挂起条目；`accepted` 为真时把
-/// 该次订阅逐条落库。
+/// SUBACK 到达后摘掉挂起条目，按原始顺序保存成功项；None 表示等待期间已退订。
 ///
 /// 摘条目是无条件的——失败也要摘，否则条目永久泄漏，且后续同 pid 的
 /// SUBACK 会把一条被 broker 拒绝的订阅补记进本地订阅表，之后每次重连
@@ -400,10 +402,10 @@ pub fn ClientCore::record_outbound_subscribe(
 fn ClientCore::commit_pending_subscribe(
   self : ClientCore,
   pid : Int32,
-  accepted : Bool,
+  codes : Array[@protocol.SubAckCode],
 ) -> Unit {
-  let mut found : Array[@protocol.Subscription] = []
-  let kept : Array[(Int32, Array[@protocol.Subscription])] = []
+  let mut found : Array[@protocol.Subscription?] = []
+  let kept : Array[(Int32, Array[@protocol.Subscription?])] = []
   for entry in self.pending_subscribes {
     if entry.0 == pid {
       found = entry.1
@@ -412,9 +414,16 @@ fn ClientCore::commit_pending_subscribe(
     }
   }
   self.pending_subscribes = kept
-  if accepted {
-    for sub in found {
-      self.record_subscription(sub.topic, sub.qos)
+  if codes.length() != found.length() {
+    return
+  }
+  for i in 0..<found.length() {
+    match found[i] {
+      Some(sub) =>
+        if !(codes[i] is @protocol.SubAckCode::Failure) {
+          self.record_subscription(sub.topic, sub.qos)
+        }
+      None => ()
     }
   }
 }
@@ -482,12 +491,14 @@ pub fn ClientCore::forget_subscription(
   self.subscriptions = kept
   // 还在等 SUBACK 的挂起订阅也要摘：否则 SUBACK 一到，
   // `commit_pending_subscribe` 会把刚退订的 topic 补记回来，退订等于白做。
-  let kept_pending : Array[(Int32, Array[@protocol.Subscription])] = []
+  let kept_pending : Array[(Int32, Array[@protocol.Subscription?])] = []
   for entry in self.pending_subscribes {
-    let keep : Array[@protocol.Subscription] = []
+    // Preserve wire-order positions so a later mixed SUBACK still aligns.
+    let keep : Array[@protocol.Subscription?] = []
     for sub in entry.1 {
-      if sub.topic != topic {
-        keep.push(sub)
+      match sub {
+        Some(s) => keep.push(if s.topic == topic { None } else { sub })
+        None => keep.push(None)
       }
     }
     if keep.length() > 0 {

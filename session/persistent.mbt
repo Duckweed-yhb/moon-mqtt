@@ -353,8 +353,17 @@ pub fn SessionStore::restore(
         }
         seen.push(pkt.packet_id)
         match SendStage::from_int(it.stage) {
-          Ok(stage) =>
+          Ok(stage) => {
+            if (stage is SendStage::WaitingPuback) !=
+              (pkt.qos is @protocol.QoS::AtLeastOnce) {
+              return Err(
+                "restore item " +
+                i.to_string() +
+                ": send stage does not match publish QoS",
+              )
+            }
             entries.push({ packet_id: pkt.packet_id, publish: pkt, stage, })
+          }
           Err(e) => return Err("restore item " + i.to_string() + ": " + e)
         }
       }
@@ -643,5 +652,15 @@ test "restore rejects a QoS0 publish in flight" {
   match SessionStore::restore(1, [InflightWire::new(0, wire)]) {
     Ok(_) => fail("QoS0 in flight should be rejected")
     Err(e) => assert_true(e.contains("QoS0"))
+  }
+}
+
+///|
+test "restore rejects valid stage codes from a different QoS handshake" {
+  for (qos, bad_stage) in [(1, 1), (1, 2), (2, 0)] {
+    let (store, _) = record_outbound(SessionStore::new(), mk_publish(qos))
+    let (cursor, items) = store.snapshot()
+    let corrupt = InflightWire::new(bad_stage, items[0].wire)
+    assert_true(SessionStore::restore(cursor, [corrupt]) is Err(_))
   }
 }

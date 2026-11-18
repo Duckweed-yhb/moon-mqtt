@@ -43,11 +43,13 @@ fn main {
   )
   println("")
 
-  // 3) 设备重启 / 重连。从持久化（实际项目里是文件）读回 store 快照。
-  //    这里用 from_parts 模拟：在途条目仍在，next_id 游标不变。
+  // 3) 重连后沿用内存中的出站会话。
   println("[3] 重连后用 SessionStore.replay() 取待重放帧：")
   let frames = @session.replay(store)
   println("    replay 返回 " + frames.length().to_string() + " 帧：")
+  guard frames.length() == 1 && frames[0] == [0x62, 2, pid >> 8, pid & 255] else {
+    abort("expected one PUBREL for the original packet id")
+  }
   let mut i = 0
   for f in frames {
     i = i + 1
@@ -56,7 +58,7 @@ fn main {
       i.to_string() +
       "：" +
       f.length().to_string() +
-      " 字节（WaitPubcomp 状态应产出 PUBREL，DUP PUBLISH 已在 WaitPubrec 阶段完成）",
+      " 字节（WaitPubcomp 状态应产出 PUBREL）",
     )
   }
   println("")
@@ -71,6 +73,9 @@ fn main {
 
   // 5) 再 replay 应为空
   let after = @session.replay(store)
+  guard store.inflight_count() == 0 && after.is_empty() else {
+    abort("PUBCOMP did not clear the outbound session")
+  }
   println(
     "[5] 握手完成。再 replay 返回 " +
     after.length().to_string() +

@@ -1,6 +1,6 @@
 # moon-mqtt
 
-> 当前源码验证（native 于 2026-11-18 复测）：native 220/220，js 与 wasm-gc 各 177/177；native `moon check --deny-warn` 和格式检查通过。本轮修复尚未发布，安装包不包含这些工作区变更；wasm 的历史验证不作为本轮结果。
+> 当前源码验证（native 于 2026-11-18 复测）：native 220/220，js 与 wasm-gc 各 177/177；native `moon check --deny-warn` 和格式检查通过。wasm 的历史验证不作为本轮结果。
 
 MoonBit 写的 MQTT 3.1.1 客户端。浏览器里走 WebSocket，native 上走 C FFI TCP，两条路径共用 `protocol/` 与 `session/` 纯计算层。QoS0/1/2 全支持，QoS2 协议握手、运行期间的入站去重和出站在途重放是重点；进程重启后的入站去重状态恢复尚未实现。MQTT 5.0 在路线图上。
 

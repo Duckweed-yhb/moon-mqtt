@@ -78,9 +78,9 @@ fn main {
   )
   println("")
   println(
-    "=== 结论：QoS2 exactly-once 在断线重连后通过 DUP 重发 + PUBREL 幂等语义",
+    "本例保留内存中的出站会话，模拟收到 PUBREC 后断线。",
   )
   println(
-    "     保证不丢失、不重复。见 session/persistent.mbt 单测。 ===",
+    "重放 PUBREL 后收到 PUBCOMP，在途记录已清除。",
   )
 }

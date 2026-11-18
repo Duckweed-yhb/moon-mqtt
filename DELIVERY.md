@@ -34,6 +34,9 @@ moon run examples/reject_demo --target native       # 每条拒绝路径
    记录在 README 与 `docs/CASES.md`。
 3. **native IO 层**（`transport/` `client/`）：**没有自动化测试**。端到端证据是
    `examples/scripted-broker`——用可插拔 `Conn` trait 跑真实协议时序但不碰 socket。
+4. **命令行客户端**（`cmd/moon-mqtt/`，native 可执行）：没有单元测试，参数解析与拒绝路径
+   是 2026-11-18 实跑的（`--help`、参数个数不足、端口越界、发布主题带通配符，均按预期
+   打印原因并以 1 退出）；README 里两个终端收发一条消息的流程本机没有 broker，未跑。
 
 ## 三、已知空白（主动写出来）
 

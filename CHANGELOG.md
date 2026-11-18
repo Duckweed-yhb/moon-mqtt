@@ -4,10 +4,14 @@
 
 ## [Unreleased]
 
+## [0.3.15] - 2026-11-19
+
 ### Added
 
 - `examples/reject_demo`：把拒绝路径打印出来——QoS1/2 `packet_id=0`、topic 带通配符、QoS0 置 DUP、PINGRESP flags 非零、broker 发来客户端方向的报文、以及畸形帧在状态机里的落点（`MalformedFrame` → `Fatal`）。
 - `Framer::new_limited(limit)` / `Framer::limit()` 与 `ClientCore::new_with_frame_limit(opts, limit)`：帧长上限从写死的协议上限（约 256 MB）改成可收紧。旧实现只在缓冲已经超过上限时返回 `framer buffer overflow`，对端只要发一帧 `30 FF FF FF 7F`（声明 268 MB 载荷）然后不再发送，本端就会一直往缓冲里攒字节，直到攒满 256 MB 才报错。新实现在解析出固定头后先比 `total > limit`，超了立刻返回 `framer: frame exceeds limit N` 并清缓冲，不攒载荷；`Framer::new()` 的默认上限仍是协议上限，已有调用方行为不变。补 3 条回归（超限立刻拒且缓冲清空、限内照常切两帧、`ClientCore` 把它落成 `FramerError` 事件）。
+- `cmd/moon-mqtt`：native 可执行命令行客户端，`pub` 与 `sub` 各一条命令。参数个数、端口范围（1..65535）、发布主题与订阅过滤器都在连接前校验，失败打印原因并以 1 退出。没有单元测试，参数与拒绝路径是 2026-11-18 实跑的。
+
 - `DELIVERY.md`：验收条款 vs 证据的对照，并明确区分三层验证强度——纯计算层四后端有自动化测试，`browser/` 与 `transport/`、`client/` 只有手工/示例级验证。
 
 - `core/CoreEvent::MalformedFrame(类型号, 原因)`：已知入站报文的解码失败单独上报，`plan_event` 映射到 `Fatal`（§4.8 要求关闭连接）。此前所有 `Err` 都被压成 `UnknownPacketType` 且丢掉原因文本，一条因 topic 非法被拒的 QoS1 PUBLISH 与「不认识的报文类型」在日志里无法区分。
@@ -32,6 +36,10 @@
 - `core/reset_session` 不摘挂起的 SUBSCRIBE：会话丢失后这些 pid 属于旧会话，新会话里同一个 id 可能被别的请求占用，迟到的 SUBACK 会把一条早已作废的订阅补进本地订阅表，之后每次重连都替它重订。现在连同在途一起清。
 - `async/reconnect` 不解冻：`fatal` 的语义是「这条连接不可再用」，reconnect 的语义正是换一条新连接，但旧实现只把新 CONNECT 塞进队列、`feed_bytes` 仍然早退——客户端看起来活着，实际再也不会推进。现在 reconnect 顺手清掉 `fatal`（framer 缓冲本来就由 `core.reconnect_bytes()` 重置）。
 - `async/reconnect` 此前不清待发字节队列：漏调 `on_transport_close` 直接重连时，尚未交给旧连接的出站字节残留下来，与新 CONNECT 混排重复出站。现在入队新 CONNECT 前先清空队列；在途 QoS1/2 仍由 SessionStore 按 `session_present` 重放，不丢失。回归覆盖「未先 close 直接 reconnect」路径。
+
+- `client/read_frame` 按剩余长度一次性 `read_some(need)`，而 native transport 会先按请求长度分配缓冲，报文体越大临时缓冲越大；改为单次读不超过 16 KB，分多轮凑齐一帧。回归用 `FakeConn` 记录每次读请求的长度，锁住大帧不会被一次性索要。
+- `client` 重复关闭与关闭后访问：连续两次 `close` 会重复释放 TCP 句柄，关闭之后再 `poll_once` / `publish` 会碰到已释放的连接。现在关闭幂等、只释放一次，`closed` 之后的 `publish` / `subscribe` / `unsubscribe` / `poll_once` 直接返回 `connection closed`，不再触网。
+- `client` 写帧失败后连接状态不更新：`publish`、PUBACK/PUBREC/PUBCOMP 回包等路径直接调 `tcp.write`，失败只把错误返回给调用方，客户端仍标着 `Connected`，在途 QoS1/2 记录留在 `SessionStore` 等下一次重发。现在统一走 `write_frame`，写失败即关闭连接；在途记录保留，交给 `session_present=1` 的重连重放。
 
 ## [0.3.14] - 2026-11-11
 

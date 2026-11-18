@@ -438,11 +438,30 @@ test "subscribe completes on accepted SUBACK" {
 test "subscribe reports rejected SUBACK" {
   let out : Array[Array[Int32]] = []
   let closed : Array[Int32] = []
-  let c = f_connected(f_suback(1, 0x80), out, closed)
-  match c.subscribe("a/b", @protocol.qos1()) {
-    Ok(_) => fail("expected Err for rejected SUBACK")
-    Err(e) => assert_eq(e, "SUBACK rejected")
-  }
+  let c = f_connected(
+    f_script([f_suback(1, 0x80), f_suback(2, 0), f_suback(3, 0x80)]),
+    out,
+    closed,
+  )
+  let received = []
+  let old_handler : SubHandler = fn(_, _) { received.push("old") }
+  let new_handler : SubHandler = fn(_, _) { received.push("new") }
+  assert_eq(
+    c.subscribe_with_handler("a/b", @protocol.qos1(), new_handler),
+    Err("SUBACK rejected"),
+  )
+  assert_eq(c.subs.length(), 0)
+  assert_eq(
+    c.subscribe_with_handler("a/b", @protocol.qos1(), old_handler),
+    Ok(()),
+  )
+  assert_eq(
+    c.subscribe_with_handler("a/b", @protocol.qos2(), new_handler),
+    Err("SUBACK rejected"),
+  )
+  assert_eq(c.subs.length(), 1)
+  (c.subs[0].handler)("a/b", [])
+  assert_eq(received, ["old"])
 }
 
 ///|
@@ -477,10 +496,15 @@ test "subscribe waits SUBACK while dispatching interleaved QoS1 publish" {
     ),
   )
   let c = f_connected(f_script([inbound, f_suback(1, 0x00)]), out, closed)
-  match c.subscribe("sensors/#", @protocol.qos1()) {
+  let received = []
+  let handler : SubHandler = fn(topic, payload) {
+    received.push((topic, payload))
+  }
+  match c.subscribe_with_handler("sensors/#", @protocol.qos1(), handler) {
     Ok(_) => ()
     Err(e) => fail("subscribe failed: " + e)
   }
+  assert_eq(received, [("sensors/x", [7])])
   // read_control 必须消化插入的业务帧并自动回 PUBACK(9)，不能把它当成「expected SUBACK」丢掉
   assert_eq(out.length(), 3)
   assert_eq(out[1][0], 0x82) // SUBSCRIBE

@@ -38,10 +38,10 @@ def exchange(listener, mode):
         else:
             body = frame(stream, 0x82)
             assert body[2:] == topic + b"\x01"
-            conn.sendall(b"\x90\x03" + body[:2] + b"\x01")
             publish = topic + b"\x00\x07" + PAYLOAD
             conn.sendall(bytes([0x32, len(publish)]) + publish)
             assert frame(stream, 0x40) == b"\x00\x07"
+            conn.sendall(b"\x90\x03" + body[:2] + b"\x01")
         assert frame(stream, 0xE0) == b""
 
 

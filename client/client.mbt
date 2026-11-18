@@ -423,8 +423,8 @@ fn MqttClient::forget_handler(self : MqttClient, topic : String) -> Unit {
 }
 
 ///|
-/// 订阅并注册回调：发 SUBSCRIBE 等 SUBACK，成功后把 (filter, handler)
-/// 存进本地注册表。之后调 `poll_once()` 收到匹配的 PUBLISH 时会逐个调用
+/// 新过滤器的回调可在 SUBACK 前收到消息；订阅失败会撤销注册。
+/// 更新已有过滤器时，收到成功确认前仍使用原回调。之后调 `poll_once()` 收到匹配的 PUBLISH 时会逐个调用
 /// handler(topic, payload)。同一个 filter 重复订阅会覆盖旧 handler。
 pub fn MqttClient::subscribe_with_handler(
   self : MqttClient,
@@ -432,21 +432,28 @@ pub fn MqttClient::subscribe_with_handler(
   qos : @protocol.QoS,
   handler : SubHandler,
 ) -> Result[Unit, String] {
-  match self.subscribe(topic, qos) {
-    Ok(_) => {
-      // 覆盖同 filter 的旧 handler
-      let mut i = 0
-      while i < self.subs.length() {
-        if self.subs[i].filter == topic {
-          self.subs[i] = { filter: topic, qos, handler, }
+  let reg : SubscriptionReg = { filter: topic, qos, handler, }
+  for i in 0..<self.subs.length() {
+    if self.subs[i].filter == topic {
+      // An existing subscription stays active until its replacement is accepted.
+      match self.subscribe(topic, qos) {
+        Ok(_) => {
+          self.forget_handler(topic)
+          self.subs.push(reg)
           return Ok(())
         }
-        i = i + 1
+        Err(e) => return Err(e)
       }
-      self.subs.push({ filter: topic, qos, handler, })
-      Ok(())
     }
-    Err(e) => Err(e)
+  }
+  // The first matching PUBLISH may arrive before SUBACK on a new filter.
+  self.subs.push(reg)
+  match self.subscribe(topic, qos) {
+    Ok(_) => Ok(())
+    Err(e) => {
+      self.forget_handler(topic)
+      Err(e)
+    }
   }
 }
 

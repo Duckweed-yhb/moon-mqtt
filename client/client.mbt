@@ -284,7 +284,7 @@ pub fn MqttClient::publish(
     return Err("out of packet ids")
   }
   let pkt = if pid == 0 { seed } else { seed.with_packet_id(pid) }
-  match self.tcp.write(@protocol.encode_publish(pkt)) {
+  match self.write_frame(@protocol.encode_publish(pkt)) {
     Err(e) => return Err(e)
     Ok(_) => ()
   }
@@ -305,7 +305,7 @@ pub fn MqttClient::publish(
         Ok(@protocol.IncomingPacket::Pubrec(id)) if id == pid => {
           let (s1, pubrel) = @session.on_pubrec(self.store[0], pid)
           self.store[0] = s1
-          match self.tcp.write(pubrel) {
+          match self.write_frame(pubrel) {
             Err(e) => return Err(e)
             Ok(_) => ()
           }
@@ -351,7 +351,7 @@ pub fn MqttClient::subscribe(
   }
   let subs = [@protocol.Subscription::new(topic, qos)]
   let pkt = @protocol.SubscribePacket::new(pid, subs)
-  match self.tcp.write(@protocol.encode_subscribe(pkt)) {
+  match self.write_frame(@protocol.encode_subscribe(pkt)) {
     Err(e) => return Err(e)
     Ok(_) => ()
   }
@@ -391,7 +391,7 @@ pub fn MqttClient::unsubscribe(
     return Err("out of packet ids")
   }
   let pkt = @protocol.UnsubscribePacket::new(pid, [topic])
-  match self.tcp.write(@protocol.encode_unsubscribe(pkt)) {
+  match self.write_frame(@protocol.encode_unsubscribe(pkt)) {
     Err(e) => return Err(e)
     Ok(_) => ()
   }
@@ -488,7 +488,7 @@ fn MqttClient::dispatch_publish(
   let mut deliver = true
   match p.qos {
     @protocol.QoS::AtLeastOnce =>
-      match self.tcp.write(@protocol.encode_puback(p.packet_id)) {
+      match self.write_frame(@protocol.encode_puback(p.packet_id)) {
         Ok(_) => ()
         Err(e) => return Err(e)
       }
@@ -498,7 +498,7 @@ fn MqttClient::dispatch_publish(
       } else {
         self.inbound_qos2.push(p.packet_id)
       }
-      match self.tcp.write(@protocol.encode_pubrec(p.packet_id)) {
+      match self.write_frame(@protocol.encode_pubrec(p.packet_id)) {
         Ok(_) => ()
         Err(e) => return Err(e)
       }
@@ -541,7 +541,7 @@ fn MqttClient::read_control(
       }
       @protocol.IncomingPacket::Pubrel(id) => {
         self.inbound_qos2 = pid_without(self.inbound_qos2, id)
-        match self.tcp.write(@protocol.encode_pubcomp(id)) {
+        match self.write_frame(@protocol.encode_pubcomp(id)) {
           Ok(_) => ()
           Err(e) => return Err(e)
         }
@@ -603,7 +603,7 @@ pub fn MqttClient::poll_once(
     @protocol.IncomingPacket::Pubrec(id) => {
       let (s1, pubrel) = @session.on_pubrec(self.store[0], id)
       self.store[0] = s1
-      match self.tcp.write(pubrel) {
+      match self.write_frame(pubrel) {
         Ok(_) => Ok(true)
         Err(e) => Err(e)
       }
@@ -615,7 +615,7 @@ pub fn MqttClient::poll_once(
     @protocol.IncomingPacket::Pubrel(id) => {
       // 入站 QoS2 的第三步：清去重表并回 PUBCOMP。
       self.inbound_qos2 = pid_without(self.inbound_qos2, id)
-      match self.tcp.write(@protocol.encode_pubcomp(id)) {
+      match self.write_frame(@protocol.encode_pubcomp(id)) {
         Ok(_) => Ok(true)
         Err(e) => Err(e)
       }
@@ -635,7 +635,7 @@ pub fn MqttClient::ping(self : MqttClient) -> Result[Unit, String] {
   if self.closed {
     return Err("connection closed")
   }
-  match self.tcp.write(@protocol.encode_pingreq()) {
+  match self.write_frame(@protocol.encode_pingreq()) {
     Err(e) => return Err(e)
     Ok(_) => ()
   }
@@ -748,10 +748,9 @@ pub fn MqttClient::reconnect(self : MqttClient) -> Result[MqttClient, String] {
     c.inbound_qos2 = old_inbound
     let frames = c.replay_frames()
     for f in frames {
-      match c.tcp.write(f) {
+      match c.write_frame(f) {
         Ok(_) => ()
         Err(e) => {
-          c.close_once()
           return Err("replay write failed: " + e)
         }
       }
@@ -771,10 +770,9 @@ pub fn MqttClient::reconnect(self : MqttClient) -> Result[MqttClient, String] {
       if pid != 0 {
         let sub = @protocol.Subscription::new(reg.filter, reg.qos)
         let pkt = @protocol.SubscribePacket::new(pid, [sub])
-        match c.tcp.write(@protocol.encode_subscribe(pkt)) {
+        match c.write_frame(@protocol.encode_subscribe(pkt)) {
           Ok(_) => ()
           Err(e) => {
-            c.close_once()
             return Err("resubscribe write failed: " + e)
           }
         }
@@ -782,6 +780,22 @@ pub fn MqttClient::reconnect(self : MqttClient) -> Result[MqttClient, String] {
     }
   }
   Ok(c)
+}
+
+///|
+/// A transport error can follow a partial write. Discard the socket so the
+/// next packet cannot be interpreted as the rest of the interrupted frame.
+fn MqttClient::write_frame(
+  self : MqttClient,
+  frame : Array[Int32],
+) -> Result[Unit, String] {
+  match self.tcp.write(frame) {
+    Ok(_) => Ok(())
+    Err(e) => {
+      self.close_once()
+      Err(e)
+    }
+  }
 }
 
 ///|
@@ -798,10 +812,7 @@ pub fn MqttClient::disconnect(self : MqttClient) -> Result[Unit, String] {
   if self.closed {
     return Ok(())
   }
-  let res = match self.tcp.write(@protocol.encode_disconnect()) {
-    Err(e) => Err(e)
-    Ok(_) => Ok(())
-  }
+  let res = self.write_frame(@protocol.encode_disconnect())
   self.close_once()
   return res
 }

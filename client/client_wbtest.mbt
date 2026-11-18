@@ -20,6 +20,7 @@
 /// 假连接：按 `in_bytes` 顺序吐入站字节，把写出的每一帧追加到共享数组
 /// `out`（测试用同一个数组断言），`close_count` 记录被关闭的次数。
 priv struct FakeConn {
+  fail_after : Int32
   in_bytes : Array[Int32]
   mut pos : Int32
   out : Array[Array[Int32]]
@@ -29,6 +30,10 @@ priv struct FakeConn {
 
 ///|
 impl Conn for FakeConn with fn write(self, bytes) {
+  if self.out.length() == self.fail_after {
+    self.out.push([bytes[0]])
+    return Err("interrupted write")
+  }
   self.out.push(bytes)
   Ok(())
 }
@@ -100,9 +105,11 @@ fn f_connected(
   tail : Array[Int32],
   out : Array[Array[Int32]],
   closed : Array[Int32],
+  fail_after? : Int32 = -1,
 ) -> MqttClient raise {
   let script = f_script([f_connack(false, 0), tail])
   let fake : &Conn = FakeConn::{
+    fail_after,
     in_bytes: script,
     pos: 0,
     out,
@@ -143,6 +150,7 @@ test "connect reports session_present=true from CONNACK" {
   let out : Array[Array[Int32]] = []
   let closed : Array[Int32] = []
   let fake : &Conn = FakeConn::{
+    fail_after: -1,
     in_bytes: f_connack(true, 0),
     pos: 0,
     out,
@@ -167,6 +175,7 @@ test "connect closes socket and reports refused CONNACK" {
   let out : Array[Array[Int32]] = []
   let closed : Array[Int32] = []
   let fake : &Conn = FakeConn::{
+    fail_after: -1,
     in_bytes: f_connack(false, 5),
     pos: 0,
     out,
@@ -192,6 +201,7 @@ test "connect rejects a first frame that is not CONNACK" {
   let out : Array[Array[Int32]] = []
   let closed : Array[Int32] = []
   let fake : &Conn = FakeConn::{
+    fail_after: -1,
     in_bytes: [0xD0, 0x00],
     pos: 0,
     out,
@@ -217,6 +227,7 @@ test "connect times out on a half frame instead of hanging" {
   let out : Array[Array[Int32]] = []
   let closed : Array[Int32] = []
   let fake : &Conn = FakeConn::{
+    fail_after: -1,
     in_bytes: [0x20],
     pos: 0,
     out,
@@ -789,6 +800,7 @@ test "read timeout is configurable and defaults to five seconds" {
   let closed : Array[Int32] = []
   let timeouts : Array[Int32] = []
   let fake : &Conn = FakeConn::{
+    fail_after: -1,
     in_bytes: f_script([f_connack(false, 0)]),
     pos: 0,
     out,
@@ -809,6 +821,7 @@ test "read timeout is configurable and defaults to five seconds" {
   // 非正超时回退默认值（5000），而不是「每次读立刻超时」
   let timeouts2 : Array[Int32] = []
   let fake2 : &Conn = FakeConn::{
+    fail_after: -1,
     in_bytes: f_script([f_connack(false, 0)]),
     pos: 0,
     out: [],
@@ -835,6 +848,7 @@ test "read_frame chunks a large payload and preserves the next frame" {
   script.push(0xD0)
   script.push(0)
   let conn : FakeConn = {
+    fail_after: -1,
     in_bytes: script,
     pos: 0,
     out: [],
@@ -861,6 +875,22 @@ test "disconnect closes once and subsequent calls leave the transport alone" {
   assert_eq(client.ping(), Err("connection closed"))
   assert_eq(client.poll_once(0), Err("connection closed"))
   assert_eq(client.read_packet().map(fn(_) { () }), Err("connection closed"))
+  assert_eq(closed.length(), 1)
+  assert_eq(out.length(), 2)
+}
+
+///|
+test "partial QoS1 write closes the stream and preserves the inflight publish" {
+  let out = []
+  let closed = []
+  let client = f_connected([], out, closed, fail_after=1)
+  assert_eq(client.publish("a/b", [42], @protocol.qos1()), Err("interrupted write"))
+  assert_eq(closed.length(), 1)
+  let replay = client.replay_frames()
+  assert_eq(replay.length(), 1)
+  assert_eq(replay[0][0], 0x3A)
+  assert_eq(client.ping(), Err("connection closed"))
+  assert_eq(client.disconnect(), Ok(()))
   assert_eq(closed.length(), 1)
   assert_eq(out.length(), 2)
 }

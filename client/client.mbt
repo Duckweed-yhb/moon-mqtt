@@ -571,15 +571,15 @@ pub fn MqttClient::poll_once(
   self : MqttClient,
   timeout_ms : Int32,
 ) -> Result[Bool, String] {
-  if self.closed {
-    return Err("connection closed")
-  }
   // 帧边界已丢的连接不许假装「没数据」：否则调用方会一直 poll 下去，
   // 以为只是空闲，实际上每次读出来的都是垃圾。
   if self.desynced {
     return Err(
       "connection desynchronised after a partial read, reconnect required",
     )
+  }
+  if self.closed {
+    return Err("connection closed")
   }
   match self.tcp.wait_read(timeout_ms) {
     Ok(false) => return Ok(false)
@@ -834,13 +834,13 @@ pub fn MqttClient::replay_frames(self : MqttClient) -> Array[Array[Int32]] {
 pub fn MqttClient::read_packet(
   self : MqttClient,
 ) -> Result[@protocol.IncomingPacket, String] {
-  if self.closed {
-    return Err("connection closed")
-  }
   if self.desynced {
     return Err(
       "connection desynchronised after a partial read, reconnect required",
     )
+  }
+  if self.closed {
+    return Err("connection closed")
   }
   let poison = [false]
   match read_frame(self.tcp, self.read_timeout_ms, poison) {
@@ -848,6 +848,7 @@ pub fn MqttClient::read_packet(
     Err(e) => {
       if poison[0] {
         self.desynced = true
+        self.close_once()
       }
       Err(e)
     }

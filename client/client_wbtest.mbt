@@ -737,6 +737,15 @@ test "partial frame poisons the connection" {
     Ok(_) => fail("desynchronised connection must not poll as idle")
     Err(e) => assert_true(e.contains("desynchronised"))
   }
+  assert_eq(closed.length(), 1)
+  assert_eq(
+    c.publish("after/timeout", [1], @protocol.qos1()),
+    Err("connection closed"),
+  )
+  assert_eq(c.replay_frames().length(), 0)
+  assert_eq(c.disconnect(), Ok(()))
+  assert_eq(out.length(), 1)
+  assert_eq(closed.length(), 1)
 }
 
 ///|

@@ -105,7 +105,7 @@ fn f_connected(
   tail : Array[Int32],
   out : Array[Array[Int32]],
   closed : Array[Int32],
-  fail_after? : Int32 = -1,
+  fail_after~ : Int32 = -1,
 ) -> MqttClient raise {
   let script = f_script([f_connack(false, 0), tail])
   let fake : &Conn = FakeConn::{
@@ -884,7 +884,10 @@ test "partial QoS1 write closes the stream and preserves the inflight publish" {
   let out = []
   let closed = []
   let client = f_connected([], out, closed, fail_after=1)
-  assert_eq(client.publish("a/b", [42], @protocol.qos1()), Err("interrupted write"))
+  assert_eq(
+    client.publish("a/b", [42], @protocol.qos1()),
+    Err("interrupted write"),
+  )
   assert_eq(closed.length(), 1)
   let replay = client.replay_frames()
   assert_eq(replay.length(), 1)

@@ -750,9 +750,7 @@ pub fn MqttClient::reconnect(self : MqttClient) -> Result[MqttClient, String] {
     for f in frames {
       match c.write_frame(f) {
         Ok(_) => ()
-        Err(e) => {
-          return Err("replay write failed: " + e)
-        }
+        Err(e) => return Err("replay write failed: " + e)
       }
     }
   }
@@ -772,9 +770,7 @@ pub fn MqttClient::reconnect(self : MqttClient) -> Result[MqttClient, String] {
         let pkt = @protocol.SubscribePacket::new(pid, [sub])
         match c.write_frame(@protocol.encode_subscribe(pkt)) {
           Ok(_) => ()
-          Err(e) => {
-            return Err("resubscribe write failed: " + e)
-          }
+          Err(e) => return Err("resubscribe write failed: " + e)
         }
       }
     }

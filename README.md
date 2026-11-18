@@ -353,6 +353,7 @@ mosquitto_sub -h 127.0.0.1 -t 'sensors/#' -v
 - **读超时**：单次 socket 读默认 5 秒（`wait_read`），CONNACK/PUBACK/PINGRESP 等同步等待不会永久挂起。跨公网 / 大报文体 / broker 回包慢时用 `connect_opts_with_timeout` 或 `connect_with_conn_timeout` 放宽；读超时会把连接标成 `desynced`（帧边界已丢），只能重连，所以宁可设宽一些。
 - **浏览器自动重连上限**：`browser/` 断线后 1 秒重连，**连续失败**最多 3 次；每次连上成功即把计数归零，长期在线不会耗尽配额。连续 3 次失败后刷新页面才会重新建立连接。
 - **`client/` 层测试**：39 条白盒单测（`client/client_wbtest.mbt`），经 `Conn` 接缝注入脚本化假连接，覆盖 CONNECT/CONNACK 各分支、QoS0/1/2 发布握手、SUBACK、poll 派发与 QoS2 去重、自动心跳、断开、分帧上下限、握手等待期间（含 QoS2 等 PUBREC、等 PUBCOMP 两个等待点）的插帧派发（当前源码 wasm-gc 178 / native 221）。native + C FFI 无法在 wasm 后端实例化。
+- **首条订阅消息**：原生客户端可将早于 SUBACK 的首条 PUBLISH 交给新过滤器的回调；订阅遭拒时会撤销该注册。运行 `python scripts/check_cli_loopback.py` 可通过回环 TCP 复现这个时序，并核对客户端回送的 PUBACK。
 - **native 重连的入站 QoS2 去重**：`reconnect` 在 `session_present=1` 时保留旧客户端的 `inbound_qos2` 表，避免 broker 重发「已派发、PUBREL 尚未完成」的 PUBLISH 被重复派发；`session_present=0` 时清空。这条路径需要真实 TCP，未纳入假连接单测。
 - **`browser/` 层**：WebSocket 的 IO 仍然没有自动测试（依赖 `extern "js"`，只能靠 `docs/demo/` 手工验证与 `docs/CASES.md` 的 I/O 记录；改 `browser/` 后必须重跑 `scripts/build-demo.ps1` 并手工回归 demo 页）。但**决策层已有单测**：事件 → 动作的映射统一走 `core/plan_event`（`core/dispatch_wbtest.mbt` 8 条），拒绝 CONNACK 与畸形帧都必须走「关连接」分支，被拒的 SUBACK 必须走 `SubackRejected` 而不是「订阅成功」，不会再被 `_ => ()` 静默吞掉。
 - **畸形帧后的收尾（2026-11-10 补）**：`ClientCore::feed` 产出 `FramerError` 之后，`browser/` 现在会关 WebSocket 并回调 `on_error`，`async/` 会冻结实例并让 `AsyncClient::fatal()` 返回原因；此前两层都把它当普通事件忽略，与「调用方应断开」的约定不符。

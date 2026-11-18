@@ -80,7 +80,5 @@ fn main {
   println(
     "本例保留内存中的出站会话，模拟收到 PUBREC 后断线。",
   )
-  println(
-    "重放 PUBREL 后收到 PUBCOMP，在途记录已清除。",
-  )
+  println("重放 PUBREL 后收到 PUBCOMP，在途记录已清除。")
 }

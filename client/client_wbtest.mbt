@@ -850,3 +850,17 @@ test "read_frame chunks a large payload and preserves the next frame" {
   assert_eq(read_frame(conn, 100, poison), Ok([0xD0, 0]))
   assert_eq(poison[0], false)
 }
+
+///|
+test "disconnect closes once and subsequent calls leave the transport alone" {
+  let out = []
+  let closed = []
+  let client = f_connected([], out, closed)
+  assert_eq(client.disconnect(), Ok(()))
+  assert_eq(client.disconnect(), Ok(()))
+  assert_eq(client.ping(), Err("connection closed"))
+  assert_eq(client.poll_once(0), Err("connection closed"))
+  assert_eq(client.read_packet().map(fn(_) { () }), Err("connection closed"))
+  assert_eq(closed.length(), 1)
+  assert_eq(out.length(), 2)
+}

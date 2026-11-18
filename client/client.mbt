@@ -86,6 +86,7 @@ pub struct MqttClient {
   mut inbound_qos2 : Array[Int32]
   /// 读了一半就失败（超时 / 对端关闭）：帧边界已丢，这条连接不能再用。
   /// 继续读只会把后续字节当成报文头解出垃圾。调用方必须重连。
+  mut closed : Bool
   mut desynced : Bool
   /// 单次 socket 读的超时（毫秒）。默认 5 秒，可由 connect_opts_with_timeout 覆盖。
   read_timeout_ms : Int32
@@ -222,6 +223,7 @@ fn handshake(
     subs: [],
     last_ping_ms: [0],
     inbound_qos2: [],
+    closed: false,
     desynced: false,
   })
 }
@@ -258,6 +260,9 @@ pub fn MqttClient::publish(
   payload : Array[Int32],
   qos : @protocol.QoS,
 ) -> Result[Unit, String] {
+  if self.closed {
+    return Err("connection closed")
+  }
   // MQTT §3.3.1-3.3.2：PUBLISH topic 是 UTF-8 字符串，长度 1-65535，
   // 不能含 U+0000。payload 任意长度但 ≤268435455（剩余长度上限）。
   match validate_publish_topic(topic) {
@@ -331,6 +336,9 @@ pub fn MqttClient::subscribe(
   topic : String,
   qos : @protocol.QoS,
 ) -> Result[Unit, String] {
+  if self.closed {
+    return Err("connection closed")
+  }
   // 订阅的是「过滤器」，通配符合法；规则与 publish 的 topic name 不同。
   match @protocol.validate_topic_filter(topic) {
     Ok(_) => ()
@@ -370,6 +378,9 @@ pub fn MqttClient::unsubscribe(
   self : MqttClient,
   topic : String,
 ) -> Result[Unit, String] {
+  if self.closed {
+    return Err("connection closed")
+  }
   match @protocol.validate_topic_filter(topic) {
     Ok(_) => ()
     Err(e) => return Err("unsubscribe: " + e)
@@ -560,6 +571,9 @@ pub fn MqttClient::poll_once(
   self : MqttClient,
   timeout_ms : Int32,
 ) -> Result[Bool, String] {
+  if self.closed {
+    return Err("connection closed")
+  }
   // 帧边界已丢的连接不许假装「没数据」：否则调用方会一直 poll 下去，
   // 以为只是空闲，实际上每次读出来的都是垃圾。
   if self.desynced {
@@ -618,6 +632,9 @@ pub fn MqttClient::poll_once(
 ///|
 /// 发送 PINGREQ 并等 PINGRESP（保活）。
 pub fn MqttClient::ping(self : MqttClient) -> Result[Unit, String] {
+  if self.closed {
+    return Err("connection closed")
+  }
   match self.tcp.write(@protocol.encode_pingreq()) {
     Err(e) => return Err(e)
     Ok(_) => ()
@@ -712,7 +729,7 @@ pub fn MqttClient::reconnect(self : MqttClient) -> Result[MqttClient, String] {
   let old_subs = self.subs
   let old_inbound = self.inbound_qos2
   // 先关旧 socket，避免每次重连泄漏一个 fd。
-  self.tcp.close()
+  self.close_once()
   let c = match connect_opts(self.host, self.port, self.opts) {
     Ok(c) => c
     Err(e) => return Err(e)
@@ -734,7 +751,7 @@ pub fn MqttClient::reconnect(self : MqttClient) -> Result[MqttClient, String] {
       match c.tcp.write(f) {
         Ok(_) => ()
         Err(e) => {
-          c.tcp.close()
+          c.close_once()
           return Err("replay write failed: " + e)
         }
       }
@@ -757,7 +774,7 @@ pub fn MqttClient::reconnect(self : MqttClient) -> Result[MqttClient, String] {
         match c.tcp.write(@protocol.encode_subscribe(pkt)) {
           Ok(_) => ()
           Err(e) => {
-            c.tcp.close()
+            c.close_once()
             return Err("resubscribe write failed: " + e)
           }
         }
@@ -768,13 +785,24 @@ pub fn MqttClient::reconnect(self : MqttClient) -> Result[MqttClient, String] {
 }
 
 ///|
+fn MqttClient::close_once(self : MqttClient) -> Unit {
+  if !self.closed {
+    self.closed = true
+    self.tcp.close()
+  }
+}
+
+///|
 /// 发送 DISCONNECT 并关闭连接。写失败时也强制关闭 socket，避免 fd 泄漏。
 pub fn MqttClient::disconnect(self : MqttClient) -> Result[Unit, String] {
+  if self.closed {
+    return Ok(())
+  }
   let res = match self.tcp.write(@protocol.encode_disconnect()) {
     Err(e) => Err(e)
     Ok(_) => Ok(())
   }
-  self.tcp.close()
+  self.close_once()
   return res
 }
 
@@ -799,6 +827,9 @@ pub fn MqttClient::replay_frames(self : MqttClient) -> Array[Array[Int32]] {
 pub fn MqttClient::read_packet(
   self : MqttClient,
 ) -> Result[@protocol.IncomingPacket, String] {
+  if self.closed {
+    return Err("connection closed")
+  }
   if self.desynced {
     return Err(
       "connection desynchronised after a partial read, reconnect required",

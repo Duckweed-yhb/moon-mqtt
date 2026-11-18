@@ -825,3 +825,28 @@ test "read timeout is configurable and defaults to five seconds" {
     assert_eq(t, 5000)
   }
 }
+
+///|
+test "read_frame chunks a large payload and preserves the next frame" {
+  let script = [0x30, 0x81, 0x80, 0x01]
+  for i in 0..<16385 {
+    script.push(i % 256)
+  }
+  script.push(0xD0)
+  script.push(0)
+  let conn : FakeConn = {
+    in_bytes: script,
+    pos: 0,
+    out: [],
+    close_count: [],
+    timeouts: [],
+  }
+  let poison = [false]
+  match read_frame(conn, 100, poison) {
+    Ok(frame) => assert_eq(frame, script[:16389].to_owned())
+    Err(e) => fail(e)
+  }
+  assert_eq(conn.timeouts.length(), 6)
+  assert_eq(read_frame(conn, 100, poison), Ok([0xD0, 0]))
+  assert_eq(poison[0], false)
+}

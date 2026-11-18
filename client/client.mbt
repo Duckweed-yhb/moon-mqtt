@@ -895,7 +895,9 @@ fn read_frame(
         return Err(e)
       }
     }
-    match tcp.read_some(need) {
+    // The native transport allocates the requested capacity before recv.
+    let chunk_size = if need > 16384 { 16384 } else { need }
+    match tcp.read_some(chunk_size) {
       Ok(chunk) if chunk.length() > 0 => {
         for b in chunk {
           frame.push(b)

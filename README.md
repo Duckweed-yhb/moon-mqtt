@@ -13,6 +13,24 @@ MoonBit 写的 MQTT 3.1.1 客户端。浏览器里走 WebSocket，native 上走 
 | native | `client/` | 阻塞式，自动心跳；调用 `reconnect()` 后自动 replay |
 | 纯计算层 | `protocol/` `session/` `core/` | wasm / wasm-gc / js / native 四后端可测 |
 
+## 本地验收：两个终端收发一条消息
+
+以下命令在仓库根目录运行。CLI 使用 MQTT 3.1.1、明文 TCP、匿名连接和 QoS 1。先启动允许本机匿名连接的 broker，例如在单独的终端运行 `mosquitto -p 1883`。
+
+在第一个终端运行订阅命令，等待出现 `SUBACK sensors/#`：
+
+```sh
+moon run cmd/moon-mqtt --target native -- sub 127.0.0.1 1883 "sensors/#" --once
+```
+
+在第二个终端发布一条消息：
+
+```sh
+moon run cmd/moon-mqtt --target native -- pub 127.0.0.1 1883 sensors/temp "23.5"
+```
+
+发布端收到 broker 确认后打印 `PUBACK sensors/temp`。订阅端打印 `sensors/temp 23.5` 后退出。省略 `--once` 可持续订阅，按 Ctrl+C 结束。运行 `moon run cmd/moon-mqtt --target native -- --help` 查看用法。
+
 ## 安装
 
 需要 [MoonBit 工具链](https://www.moonbitlang.com/)（moon 0.1.20261104 及以上；源码用 `#derive(...)` 前缀写法，旧工具链不认）。浏览器项目用 js 后端，native 显式使用 `--target native`。

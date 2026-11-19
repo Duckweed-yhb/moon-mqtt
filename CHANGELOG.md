@@ -4,6 +4,20 @@
 
 ## [Unreleased]
 
+## [0.3.16] - 2026-11-19
+
+### Fixed
+
+- `MqttClient::subscribe_with_handler` 新过滤器改为先登记回调再发 SUBSCRIBE：此前 SUBACK 到达前收到的首条 PUBLISH 会被丢掉。订阅失败时撤销登记；更新已有过滤器时，确认前继续用原回调，失败则保留原注册。回归覆盖两件事：SUBACK 拒绝后旧回调仍在，确认前到达的 QoS1 PUBLISH 能被交付。
+- `MqttClient::poll_once` 与 `read_packet` 把 `desynced` 判定放到 `closed` 之前，并在读到半帧时直接关闭连接：此前失步连接先报 `connection closed`，调用方看不到帧边界已乱这个真实原因，还能继续 `publish` 往一条废连接写包。回归断言失步后 `publish` 返回 `connection closed`、`replay_frames()` 为空、`disconnect()` 幂等。
+- `SessionStore::restore` 校验快照里的发送阶段与 publish 的 QoS 是否配套：QoS1 配 `WaitingPubcomp`、QoS2 配 `WaitingPuback`、QoS1 配 0 此前都能过，重放时会按错误握手发确认。补三种错配的回归。
+- `SessionStore::restore` 的在途去重由数组线性扫描改为 `Map`，同一快照恢复从 O(n²) 降到 O(n)。补 4096 条、packet id 跨 65535 回绕的快照保序回归，重复项照旧拒绝。
+
+### Changed
+
+- `examples/resume` 校验重放帧数与首帧 PUBREL 字节；`scripts/check_cli_loopback.py` 纳入 CI，实跑一次命令行回环收发。
+- README 与 DELIVERY 的测试计数同步为本轮实测：native 222，js、wasm-gc、wasm 各 179。
+
 ## [0.3.15] - 2026-11-19
 
 ### Added

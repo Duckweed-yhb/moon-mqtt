@@ -326,7 +326,7 @@ pub fn SessionStore::restore(
   items : Array[InflightWire],
 ) -> Result[SessionStore, String] {
   let entries : Array[InFlightEntry] = []
-  let seen : Array[Int32] = []
+  let seen : Map[Int32, Unit] = Map([])
   let mut i = 0
   for it in items {
     match @protocol.decode_publish(it.wire) {
@@ -343,7 +343,7 @@ pub fn SessionStore::restore(
         }
         // 同一个 packet_id 出现两次：后续 PUBACK/PUBCOMP 会一次清掉两条，
         // 重放也会用同一个 id 发两份不同内容——按坏数据拒绝。
-        if pid_seen(seen, pkt.packet_id) {
+        if seen.contains(pkt.packet_id) {
           return Err(
             "restore item " +
             i.to_string() +
@@ -351,7 +351,7 @@ pub fn SessionStore::restore(
             pkt.packet_id.to_string(),
           )
         }
-        seen.push(pkt.packet_id)
+        seen[pkt.packet_id] = ()
         match SendStage::from_int(it.stage) {
           Ok(stage) => {
             if (stage is SendStage::WaitingPuback) !=
@@ -612,17 +612,6 @@ test "stage to_int from_int roundtrip" {
 }
 
 ///|
-/// 在途表里是否已有该 packet_id（restore 校验用）。
-fn pid_seen(seen : Array[Int32], pid : Int32) -> Bool {
-  for p in seen {
-    if p == pid {
-      return true
-    }
-  }
-  return false
-}
-
-///|
 test "restore rejects duplicate packet ids" {
   let wire = match record_outbound(SessionStore::new(), mk_publish(1)) {
     (s, _) => {
@@ -663,4 +652,25 @@ test "restore rejects valid stage codes from a different QoS handshake" {
     let corrupt = InflightWire::new(bad_stage, items[0].wire)
     assert_true(SessionStore::restore(cursor, [corrupt]) is Err(_))
   }
+}
+
+///|
+test "restore retains wire order across the packet id wrap in a large snapshot" {
+  let items : Array[InflightWire] = []
+  let packet = mk_publish(1)
+  for i in 0..<4096 {
+    let id = 1 + (64000 + i) % 65535
+    items.push(
+      InflightWire::new(0, @protocol.encode_publish(packet.with_packet_id(id))),
+    )
+  }
+  let restored = SessionStore::restore(4097, items).unwrap()
+  let (cursor, snapshot) = restored.snapshot()
+  assert_eq(cursor, 4097)
+  assert_eq(snapshot.length(), items.length())
+  for i in 0..<items.length() {
+    assert_eq(snapshot[i].wire, items[i].wire)
+  }
+  items.push(items[0])
+  assert_true(SessionStore::restore(4097, items) is Err(_))
 }

@@ -234,6 +234,15 @@ pub fn publish(
           return
         }
       }
+      // payload 里的字节同样只接受 0..255：JS 侧 `Uint8Array` 会把 300 取模
+      // 成 44，发出去的报文内容已经错了，回调里却看不出异常。先在这里拒掉。
+      match @protocol.validate_byte_array(payload) {
+        Ok(_) => ()
+        Err(e) => {
+          report_error("publish rejected: " + e)
+          return
+        }
+      }
       let bytes = core.publish(topic, payload, qos)
       g_core[0] = Some(core)
       browser_send(bytes)

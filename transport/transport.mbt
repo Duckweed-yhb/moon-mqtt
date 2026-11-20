@@ -45,10 +45,18 @@ pub fn connect(host : String, port : Int32) -> Result[TcpClient, String] {
 /// 写入全部字节。失败返回 `Err`。
 /// 写入全部字节。C 端已循环写满；MoonBit 侧仍校验返回值 == 期望长度，
 /// 对端中途关闭（返回 0 或不足）时报错。
+///
+/// 入参必须是 0-255 的字节值：越界不会在这里截断——C 侧按 UTF-16 单元取
+/// 低 8 位，静默截断会把 0x1FF 写成 0xFF，帧内容就错了。先逐字节校验，
+/// 越界返回带下标的 `Err`。
 pub fn TcpClient::write(
   self : TcpClient,
   bytes : Array[Int32],
 ) -> Result[Unit, String] {
+  match byte_range_error(bytes) {
+    Some(e) => return Err(e)
+    None => ()
+  }
   let n = tcp_write_ffi(self.fd, bytes_to_latin1(bytes))
   if n < 0 {
     return Err("TCP write failed")
@@ -111,4 +119,18 @@ fn bytes_to_latin1(bytes : Array[Int32]) -> String {
     chars.push(x.to_char().unwrap())
   }
   return String::from_array(chars.exact_view())
+}
+
+///|
+/// 逐字节检查范围：只接受 0-255，返回第一个越界位置与取值。
+fn byte_range_error(bytes : Array[Int32]) -> String? {
+  for i, b in bytes {
+    if b < 0 || b > 255 {
+      return Some(
+        "TCP write: byte out of range at index " + i.to_string() + ": " +
+        b.to_string(),
+      )
+    }
+  }
+  None
 }

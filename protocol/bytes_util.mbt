@@ -209,3 +209,36 @@ test "utf8_decode rejects overlong, bad continuation, surrogate, out of range" {
     },
   )
 }
+
+///|
+/// 校验字节数组每项都在 0..255：越界返回第一个越界位置与取值。
+///
+/// 报文里的"字节"在 MoonBit 侧是 `Int32`，交给各后端时才会收窄。JS 的
+/// `Uint8Array` 取模、C 侧取低 8 位，都会把 300 静默写成 44。编码前先查
+/// 一遍，别让越界值带着一条"看起来正常"的报文出去。
+pub fn validate_byte_array(bytes : Array[Int32]) -> Result[Unit, String] {
+  for i, b in bytes {
+    if b < 0 || b > 255 {
+      return Err(
+        "byte out of range at index " + i.to_string() + ": " + b.to_string(),
+      )
+    }
+  }
+  Ok(())
+}
+
+///|
+test "validate_byte_array accepts 0 to 255 and rejects out of range" {
+  assert_true(validate_byte_array([0, 1, 127, 128, 255]) is Ok(_))
+  match validate_byte_array([0, 300]) {
+    Err(e) => {
+      assert_true(e.contains("index 1"))
+      assert_true(e.contains("300"))
+    }
+    Ok(_) => fail("300 must be rejected")
+  }
+  match validate_byte_array([-1, 0]) {
+    Err(e) => assert_true(e.contains("index 0"))
+    Ok(_) => fail("-1 must be rejected")
+  }
+}

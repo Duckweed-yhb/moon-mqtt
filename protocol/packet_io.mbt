@@ -22,7 +22,14 @@ pub fn ByteWriter::new() -> ByteWriter {
 
 ///|
 /// 追加单字节。
+///
+/// 只接受 0..255。越界值在这里就被挡下：各后端收窄方式不同，JS 的
+/// `Uint8Array` 取模、C 侧取低 8 位，300 会被静默写成 44，报文字节全错
+/// 却看不出来。调用方想给出友好错误，可以先用 `validate_byte_array`。
 pub fn ByteWriter::push_byte(self : ByteWriter, b : Int32) -> Unit {
+  if b < 0 || b > 255 {
+    abort("mqtt: byte out of range: " + b.to_string())
+  }
   self.bytes.push(b)
 }
 

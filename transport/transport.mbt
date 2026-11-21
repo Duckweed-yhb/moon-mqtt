@@ -127,7 +127,9 @@ fn byte_range_error(bytes : Array[Int32]) -> String? {
   for i, b in bytes {
     if b < 0 || b > 255 {
       return Some(
-        "TCP write: byte out of range at index " + i.to_string() + ": " +
+        "TCP write: byte out of range at index " +
+        i.to_string() +
+        ": " +
         b.to_string(),
       )
     }

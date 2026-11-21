@@ -39,6 +39,8 @@ moon run cmd/moon-mqtt --target native -- pub 127.0.0.1 1883 sensors/temp "23.5"
 moon add Duckweed/moon-mqtt@0.3.16
 ```
 
+包在 mooncakes 上的命名空间是 `Duckweed`，GitHub 仓库挂在 `Duckweed-yhb` 账号下。两者是同一位作者，`moon add` 用前者，仓库地址用后者。
+
 也可以直接写进 `moon.mod`：
 
 ```toml

@@ -351,7 +351,7 @@ test "suback with multi byte remaining length parses correctly" {
 }
 
 ///|
-/// `codes()` / `rejected_count()`：混合返回码时，逐项对齐 SUBSCRIBE 的条目顺序，
+/// `codes()` / `rejected_count()`：混合返回码时，逐项对应 SUBSCRIBE 的条目顺序，
 /// 拒绝计数只数 0x80。胶水层靠这两个读数报「哪几项被拒」。
 test "suback codes accessor keeps order and counts failures" {
   match decode_suback([0x90, 0x05, 0x00, 0x09, 0x00, 0x01, 0x80]) {

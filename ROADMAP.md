@@ -33,7 +33,7 @@
 - `session_present=1` 时重放在途帧；浏览器 demo 实测 connect → suback → publish QoS1 → recv → 强制断开 → 重连
 - `docs/demo/` 静态页面 + `scripts/build-demo.ps1` + GitHub Pages
 - 架构图换成 SVG/PNG；README 改成浏览器优先，去掉竞品表
-- 0.3.1 对齐 README / CHANGELOG / `moon.mod`，修复 0.3.0 发布包内 README 仍写 `@0.2.1` 的问题
+- 0.3.1 同步 README / CHANGELOG / `moon.mod`，修复 0.3.0 发布包内 README 仍写 `@0.2.1` 的问题
 
 ### 0.3.2（2026-10-22 修复）
 

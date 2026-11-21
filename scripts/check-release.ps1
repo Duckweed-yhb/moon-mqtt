@@ -1,8 +1,8 @@
-﻿# scripts/check-release.ps1 — 发布一致性检查（CI 里跑，本地也能手跑）。
+# scripts/check-release.ps1 — 发布一致性检查（CI 里跑，本地也能手跑）。
 #
 # 起因：这个仓库有多处各自写着「当前版本」——moon.mod 的 version、CHANGELOG
 # 的第一段标题、README 里的 `moon add ...@x.y.z` 与 `Latest x.y.z`。发布时
-# 漏改任何一处都不会报错，只是文档慢慢变成谎话。脚本把它们对齐。
+# 漏改任何一处都不会报错，只是文档慢慢变成谎话。脚本把它们逐项比对。
 #
 # 英文 README（README.en.md）一起查：它不参与编译、不参与测试，是最容易长期
 # 漂移的一份。moon-foc 就曾经停在 0.1.3 而实际已发 0.1.13，差了十个小版本

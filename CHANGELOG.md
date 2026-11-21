@@ -235,7 +235,7 @@
 
 - 测试数 100/125 → 102/128；`async/` 两条审查反例与 `client/` 一条插帧派发用例转成正式回归测试（CONNACK 前订阅不产帧、重连后重发在途 QoS1、等 PUBACK 时插 PUBLISH 不丢）。
 - 测试数 102/128 → 105/131；`protocol/` 补 3 条畸形 PUBLISH 帧回归测试（QoS0 置 DUP、QoS1 零 packet_id 应拒绝，QoS1 带非零 id 的 DUP 应放行）。
-- `moon.mod` keywords：`blocking` → `websocket` / `browser` / `wasm`，与浏览器事件驱动的现定位对齐。
+- `moon.mod` keywords：`blocking` → `websocket` / `browser` / `wasm`，与浏览器事件驱动的现定位一致。
 - 版本 0.3.3 → 0.3.4；发布到 mooncakes `Duckweed/moon-mqtt@0.3.4`。
 
 ## [0.3.3] - 2026-10-26
@@ -276,7 +276,7 @@
 
 ### Changed
 
-- 文档与版本号对齐：安装命令、README 状态、CHANGELOG 更新到 0.3.1。0.3.0 发布包内的 README 仍写着 0.2.1，本次修正。
+- 文档与版本号同步：安装命令、README 状态、CHANGELOG 更新到 0.3.1。0.3.0 发布包内的 README 仍写着 0.2.1，本次修正。
 - 版本 0.3.0 → 0.3.1。
 
 ## [0.3.0] - 2026-10-22

@@ -480,11 +480,21 @@ extern "js" fn open_ws_ffi(
   #|    prev.onopen = null; prev.onmessage = null; prev.onclose = null; prev.onerror = null;
   #|    try { prev.close(); } catch (e) {}
   #|  }
+  #|  // 上面把旧 socket 的回调全摘了，它的 onclose 不会再跑，也就不会再走自己那份
+  #|  // stopKeepAlive。旧心跳定时器必须在这里显式清掉，否则每次重新 connect 都会
+  #|  // 多留一个 setInterval，它们一起 tick 新会话，把 PINGREQ 提前催出来。
+  #|  stopKeepAlive();
   #|  let ws = null;
   #|  let reconnectAttempts = 0;
   #|  const MAX_RECONNECT = 3;
   #|  let keepAliveTimer = null;
   #|  function stopKeepAlive() {
+  #|    // 句柄同时挂在 globalThis 上：每次 connect 都是一个新的闭包，旧闭包里的
+  #|    // keepAliveTimer 从外面看不见，只能通过全局句柄把它关掉。
+  #|    if (typeof globalThis !== "undefined" && globalThis.moonMQTTKeepAliveTimer) {
+  #|      clearInterval(globalThis.moonMQTTKeepAliveTimer);
+  #|      globalThis.moonMQTTKeepAliveTimer = null;
+  #|    }
   #|    if (keepAliveTimer !== null) { clearInterval(keepAliveTimer); keepAliveTimer = null; }
   #|  }
   #|  function startKeepAlive() {
@@ -494,6 +504,7 @@ extern "js" fn open_ws_ffi(
   #|    keepAliveTimer = setInterval(function() {
   #|      _M0FP38Duckweed11moon_2dmqtt7browser13browser__tick(Date.now());
   #|    }, 1000);
+  #|    if (typeof globalThis !== "undefined") { globalThis.moonMQTTKeepAliveTimer = keepAliveTimer; }
   #|  }
   #|  function open() {
   #|    if (typeof globalThis !== "undefined") { globalThis.moonMqttManualClose = false; }

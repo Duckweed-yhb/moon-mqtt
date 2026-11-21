@@ -6,6 +6,7 @@
 
 ### Fixed
 
+- `browser` 重新 connect 时清掉旧心跳定时器：旧 socket 的回调被逐个摘掉后，它的 `onclose` 不会再执行，那份 `setInterval` 也就没人关。连过几次之后多个定时器一起 `tick` 新会话，PINGREQ 会被提前催出来，keepalive 计数与超时判断跟着失真。定时器句柄改挂 `globalThis`，新连接建立前和每次启动/停止心跳都先关旧的。仅 JS 胶水层改动，测试计数不变。
 - `TcpClient::write` 先逐字节校验入参落在 0-255，越界返回带下标与取值的 `Err`：此前直接把 `Int32` 转成 `Char` 交给 C，C 侧按 UTF-16 单元取低 8 位，`300` 会被静默写成 `44`，帧内容错了却照常返回成功。补 2 条白盒回归（0-255 通过、负数与超界各自报出位置）。native 测试 222 → 224，其余三后端仍为 179。
 - `ByteWriter::push_byte` 只接受 0-255，越界直接 abort；新增 `validate_byte_array` 返回带下标与原值的错误，供上层在编码前给出可读提示。`browser` 的 `publish` 先查 payload，命中即 `report_error` 并返回，不再把越界值交给 JS 的 `Uint8Array` 取模成别的数字。补 1 条用例，四后端 224/179 → 225/180。
 

@@ -4,6 +4,10 @@
 
 ## [Unreleased]
 
+（暂无）
+
+## [0.3.17] - 2026-11-22
+
 ### Fixed
 
 - `browser` 重新 connect 时清掉旧心跳定时器：旧 socket 的回调被逐个摘掉后，它的 `onclose` 不会再执行，那份 `setInterval` 也就没人关。连过几次之后多个定时器一起 `tick` 新会话，PINGREQ 会被提前催出来，keepalive 计数与超时判断跟着失真。定时器句柄改挂 `globalThis`，新连接建立前和每次启动/停止心跳都先关旧的。仅 JS 胶水层改动，测试计数不变。

@@ -47,7 +47,7 @@ moon run examples/reject_demo --target native       # 每条拒绝路径
 
 ## 四、发布状态
 
-- mooncakes：`Duckweed/moon-mqtt@0.3.16`（Latest）。
+- mooncakes：`Duckweed/moon-mqtt@0.3.17`（Latest，2026-11-22 发布）。
 - GitHub 远程 tag 仍只到 **v0.3.5**；本地已打 `v0.3.16`，等本人 push 后远程才一致。**以 mooncakes 上的版本为准**。
 
 ## 五、工具链

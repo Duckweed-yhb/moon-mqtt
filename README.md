@@ -36,7 +36,7 @@ moon run cmd/moon-mqtt --target native -- pub 127.0.0.1 1883 sensors/temp "23.5"
 需要 [MoonBit 工具链](https://www.moonbitlang.com/)（moon 0.1.20261104 及以上；源码用 `#derive(...)` 前缀写法，旧工具链不认）。浏览器项目用 js 后端，native 显式使用 `--target native`。
 
 ```bash
-moon add Duckweed/moon-mqtt@0.3.16
+moon add Duckweed/moon-mqtt@0.3.17
 ```
 
 包在 mooncakes 上的命名空间是 `Duckweed`，GitHub 仓库挂在 `Duckweed-yhb` 账号下。两者是同一位作者，`moon add` 用前者，仓库地址用后者。
@@ -45,7 +45,7 @@ moon add Duckweed/moon-mqtt@0.3.16
 
 ```toml
 import {
-  "Duckweed/moon-mqtt@0.3.16",
+  "Duckweed/moon-mqtt@0.3.17",
 }
 ```
 

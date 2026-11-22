@@ -27,3 +27,28 @@ test "byte range reports negative and oversized bytes" {
     None => fail("byte above 255 must be rejected")
   }
 }
+
+///|
+/// `read_some` 的 max 守卫：0 和负数必须在进 C 之前报错，不能让 C 侧
+/// 换成 4096 悄悄读一批字节回来。
+test "read_some rejects non positive max before reaching C" {
+  let client : TcpClient = { fd: -1L, host: "none", port: 0, }
+  match client.read_some(0) {
+    Ok(_) => fail("max = 0 must be rejected")
+    Err(e) => assert_true(e.contains("max must be positive"))
+  }
+  match client.read_some(-3) {
+    Ok(_) => fail("negative max must be rejected")
+    Err(e) => assert_true(e.contains("-3"))
+  }
+}
+
+///|
+/// select 出错时 C 侧给 -2，这里要报成 select 错误，而不是笼统的失败。
+test "wait_read reports the select error code" {
+  let client : TcpClient = { fd: -1L, host: "none", port: 0, }
+  match client.wait_read(0) {
+    Err(e) => assert_true(e.contains("select error"))
+    Ok(_) => fail("invalid socket must not report readable or timeout")
+  }
+}

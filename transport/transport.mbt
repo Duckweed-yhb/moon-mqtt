@@ -71,10 +71,16 @@ pub fn TcpClient::write(
 
 ///|
 /// 读最多 max 字节，返回已读字节数组。连接关闭或出错返回 `Err`。
+///
+/// `max` 必须是正数：C 侧对 `max <= 0` 会静默换成 4096，调用方写 0 时拿到
+/// 一堆字节而不是空数组，语义完全走样。这里先挡掉。
 pub fn TcpClient::read_some(
   self : TcpClient,
   max : Int32,
 ) -> Result[Array[Int32], String] {
+  if max <= 0 {
+    return Err("TCP read: max must be positive, got " + max.to_string())
+  }
   let s = tcp_read_ffi(self.fd, max)
   if s.length() == 0 {
     return Err("TCP read: EOF")
@@ -96,7 +102,7 @@ pub fn TcpClient::close(self : TcpClient) -> Unit {
 /// 等 socket 可读。返回：
 /// - `Ok(true)`：数据可读，可安全 read_some
 /// - `Ok(false)`：超时（timeout_ms 内无数据）
-/// - `Err(...)`：select 错误
+/// - `Err(...)`：select 错误（C 侧返回 -2）或出现未约定的返回码
 pub fn TcpClient::wait_read(
   self : TcpClient,
   timeout_ms : Int32,
@@ -108,7 +114,10 @@ pub fn TcpClient::wait_read(
   if r == -1 {
     return Ok(false)
   }
-  return Err("wait_read failed")
+  if r == -2 {
+    return Err("wait_read failed: select error (-2)")
+  }
+  return Err("wait_read failed: unexpected code " + r.to_string())
 }
 
 ///|

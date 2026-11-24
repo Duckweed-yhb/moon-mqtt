@@ -29,6 +29,19 @@ test "byte range reports negative and oversized bytes" {
 }
 
 ///|
+/// 坏 fd 上读：recv 出错要报成读失败，不能和「对端正常关闭」混成同一句 EOF。
+test "read_some reports socket error instead of EOF" {
+  let client : TcpClient = { fd: -1L, host: "none", port: 0, }
+  match client.read_some(4) {
+    Ok(_) => fail("invalid socket must not yield bytes")
+    Err(e) => {
+      assert_true(e.contains("read failed"))
+      assert_false(e.contains("EOF"))
+    }
+  }
+}
+
+///|
 /// `read_some` 的 max 守卫：0 和负数必须在进 C 之前报错，不能让 C 侧
 /// 换成 4096 悄悄读一批字节回来。
 test "read_some rejects non positive max before reaching C" {

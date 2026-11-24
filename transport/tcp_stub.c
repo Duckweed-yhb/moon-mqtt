@@ -146,12 +146,61 @@ int32_t mqtt_tcp_write(int64_t fd, moonbit_string_t data) {
 }
 
 /* 读最多 max 字节，返回 String（每单元一字节）。EOF/错误返回空串。 */
+/* recv 结果旁路状态：mqtt_tcp_read 只返回字节串，空串既可能是对端正常关闭
+   （EOF），也可能是 recv 出错，调用方无从区分。每次读之后把结果码记在按 fd
+   索引的小表里，由 mqtt_tcp_read_status(fd) 取回。
+
+   0 = EOF，1 = 读到了数据，-1 = recv 出错，-2 = 分配缓冲失败。
+   表满时按轮转替换最旧的一条；只影响错误分类，不影响数据本身。 */
+#define MQTT_READ_SLOTS 16
+static int64_t mqtt_read_slot_fd[MQTT_READ_SLOTS];
+static int32_t mqtt_read_slot_status[MQTT_READ_SLOTS];
+static int32_t mqtt_read_slot_next = 0;
+static int32_t mqtt_read_slots_ready = 0;
+
+static void mqtt_init_read_slots(void) {
+  if (mqtt_read_slots_ready) {
+    return;
+  }
+  for (int32_t i = 0; i < MQTT_READ_SLOTS; i++) {
+    mqtt_read_slot_fd[i] = INT64_MIN;
+    mqtt_read_slot_status[i] = 0;
+  }
+  mqtt_read_slots_ready = 1;
+}
+
+static void mqtt_store_read_status(int64_t fd, int32_t status) {
+  mqtt_init_read_slots();
+  for (int32_t i = 0; i < MQTT_READ_SLOTS; i++) {
+    if (mqtt_read_slot_fd[i] == fd) {
+      mqtt_read_slot_status[i] = status;
+      return;
+    }
+  }
+  int32_t slot = mqtt_read_slot_next;
+  mqtt_read_slot_next = (slot + 1) % MQTT_READ_SLOTS;
+  mqtt_read_slot_fd[slot] = fd;
+  mqtt_read_slot_status[slot] = status;
+}
+
+/* 取某个 fd 上一次读的结果码；表里没有记录时按 EOF（0）处理。 */
+int32_t mqtt_tcp_read_status(int64_t fd) {
+  mqtt_init_read_slots();
+  for (int32_t i = 0; i < MQTT_READ_SLOTS; i++) {
+    if (mqtt_read_slot_fd[i] == fd) {
+      return mqtt_read_slot_status[i];
+    }
+  }
+  return 0;
+}
+
 moonbit_string_t mqtt_tcp_read(int64_t fd, int32_t max) {
   if (max <= 0) {
     max = 4096;
   }
   char *buf = (char *)malloc((size_t)max);
   if (buf == NULL) {
+    mqtt_store_read_status(fd, -2);
     return moonbit_make_string(0, 0);
   }
   int32_t got;
@@ -160,10 +209,19 @@ moonbit_string_t mqtt_tcp_read(int64_t fd, int32_t max) {
 #else
   got = (int32_t)recv((int)fd, buf, (size_t)max, 0);
 #endif
-  if (got <= 0) {
+  if (got == 0) {
+    /* 对端正常关闭：EOF */
+    mqtt_store_read_status(fd, 0);
     free(buf);
     return moonbit_make_string(0, 0);
   }
+  if (got < 0) {
+    /* recv 出错。此前与 EOF 一样返回空串，上层无法区分断链与读错误。 */
+    mqtt_store_read_status(fd, -1);
+    free(buf);
+    return moonbit_make_string(0, 0);
+  }
+  mqtt_store_read_status(fd, 1);
   moonbit_string_t out = moonbit_make_string(got, 0);
   for (int32_t i = 0; i < got; i++) {
     out[i] = (uint16_t)(unsigned char)buf[i];

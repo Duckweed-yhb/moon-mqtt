@@ -24,6 +24,11 @@ extern "C" fn tcp_close_ffi(fd : Int64) -> Unit = "mqtt_tcp_close"
 extern "C" fn tcp_wait_read_ffi(fd : Int64, timeout_ms : Int32) -> Int32 = "mqtt_tcp_wait_read"
 
 ///|
+/// 上一次 `tcp_read_ffi` 的结果码：0 = EOF，1 = 有数据，-1 = recv 出错，
+/// -2 = 分配缓冲失败。空串的含义靠它区分。
+extern "C" fn tcp_read_status_ffi(fd : Int64) -> Int32 = "mqtt_tcp_read_status"
+
+///|
 /// 已连接的原生 TCP 客户端。
 pub struct TcpClient {
   fd : Int64
@@ -70,7 +75,7 @@ pub fn TcpClient::write(
 }
 
 ///|
-/// 读最多 max 字节，返回已读字节数组。连接关闭或出错返回 `Err`。
+/// 读最多 max 字节，返回已读字节数组。连接关闭或出错返回 `Err`，两者用不同的错误文本区分：对端关闭报 `TCP read: EOF`，recv 出错报 `TCP read failed`。
 ///
 /// `max` 必须是正数：C 侧对 `max <= 0` 会静默换成 4096，调用方写 0 时拿到
 /// 一堆字节而不是空数组，语义完全走样。这里先挡掉。
@@ -83,7 +88,7 @@ pub fn TcpClient::read_some(
   }
   let s = tcp_read_ffi(self.fd, max)
   if s.length() == 0 {
-    return Err("TCP read: EOF")
+    return Err(read_empty_reason(self.fd))
   }
   let bytes : Array[Int32] = []
   for c in s {
@@ -118,6 +123,20 @@ pub fn TcpClient::wait_read(
     return Err("wait_read failed: select error (-2)")
   }
   return Err("wait_read failed: unexpected code " + r.to_string())
+}
+
+///|
+/// 空串读回时按 C 侧记下的结果码给出原因：对端关闭、recv 出错、缓冲分配失败。
+/// 三者此前来都报同一句 EOF，调用方分不清是正常断链还是网络出错。
+fn read_empty_reason(fd : Int64) -> String {
+  let status = tcp_read_status_ffi(fd)
+  if status == -2 {
+    return "TCP read: out of memory"
+  }
+  if status == -1 {
+    return "TCP read failed"
+  }
+  return "TCP read: EOF"
 }
 
 ///|

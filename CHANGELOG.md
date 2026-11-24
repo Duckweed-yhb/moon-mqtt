@@ -4,7 +4,9 @@
 
 ## [Unreleased]
 
-（暂无）
+### Fixed
+
+- `TcpClient::read_some` 不再把「recv 出错」和「对端正常关闭」报成同一句 `TCP read: EOF`：此前 C 侧 `recv` 返回 0 与返回 -1 都只回一个空串，上层分不清是断链还是读失败。C 侧改为每次读后把结果码（0 = EOF、1 = 有数据、-1 = 出错、-2 = 分配缓冲失败）记在按 fd 索引的小表里，新增 `mqtt_tcp_read_status(fd)` 取回；MoonBit 侧据此分别给出 `TCP read failed`、`TCP read: out of memory`、`TCP read: EOF`。补 1 条白盒回归（坏 fd 上读必须报读失败且不含 EOF）。native 227 → 228，其余三后端仍为 180。
 
 ## [0.3.17] - 2026-11-22
 

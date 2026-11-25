@@ -1,17 +1,14 @@
 # moon-mqtt
 
-> 2026-11-24 本地源码验证：native 228/228，js、wasm、wasm-gc 各 180/180。四个后端的严格编译检查均通过。
+在浏览器遥测面板中通过 WebSocket 订阅数据，或在原生程序中通过 TCP 收发消息。两个客户端共用 MoonBit 实现的 MQTT 3.1.1 编解码器和会话状态机，支持 QoS 0、1、2。
 
-MoonBit 写的 MQTT 3.1.1 客户端。浏览器里走 WebSocket，native 上走 C FFI TCP，两条路径共用 `protocol/` 与 `session/` 纯计算层。QoS0/1/2 全支持，QoS2 协议握手、运行期间的入站去重和出站在途重放是重点；进程重启后的入站去重状态恢复尚未实现。MQTT 5.0 在路线图上。
-
-项目面向浏览器遥测面板与 native 消息收发，复用 MoonBit 协议编解码和会话状态逻辑。
-
-
-| 宿主 | 包 | 形态 |
+| 运行环境 | 使用的包 | 连接与恢复 |
 |---|---|---|
-| 浏览器（js 后端） | `browser/` | 回调式，publish 支持 QoS0/1/2，断线 1 秒自动重连 |
-| native | `client/` | 阻塞式，自动心跳；调用 `reconnect()` 后自动 replay |
-| 纯计算层 | `protocol/` `session/` `core/` | wasm / wasm-gc / js / native 四后端可测 |
+| 浏览器（JS） | `browser/` | 回调式接口，断线后 1 秒自动重连 |
+| 原生程序 | `client/` | 阻塞式接口，自动发送心跳。调用 `reconnect()` 可重放在途消息 |
+| 自定义传输 | `protocol/`、`session/`、`core/` | 纯计算，可在 Native、JS、Wasm 和 Wasm-GC 上运行 |
+
+QoS 2 在进程运行期间对入站消息去重。进程重启后的入站去重状态恢复和 MQTT 5.0 支持仍在开发范围之外。
 
 ## 在两个终端中发布和订阅消息
 
@@ -356,6 +353,10 @@ mosquitto_sub -h 127.0.0.1 -t 'sensors/#' -v
 - **畸形帧后的收尾（2026-11-10 补）**：`ClientCore::feed` 产出 `FramerError` 之后，`browser/` 现在会关 WebSocket 并回调 `on_error`，`async/` 会冻结实例并让 `AsyncClient::fatal()` 返回原因；此前两层都把它当普通事件忽略，与「调用方应断开」的约定不符。
 - **解码级协议错误的收尾（2026-11-17 补）**：`Framer` 能切出完整帧、但 `decode_packet` 报错（例如 PUBLISH 的主题为空、含通配符，或报文长度与内容对不上）时，`ClientCore::feed` 记一条 `MalformedFrame`，把核心状态退回 `Disconnected` 并立刻停止处理同一批里的后续帧 - 后面的字节不再当成新报文解析，`publish` 也不再往这条连接写包。回归用例：`malformed frame stops subsequent delivery in same batch`。
 - **MQTT 5.0 本期不做**：CONNECT/PUBLISH properties、CONNACK reason code 等基础字段列入 11–1 月维护计划；完整 5.0 与 native TLS 视工具链在 2027 评估（浏览器侧的 TLS 由浏览器负责，不属本项目范围）。
+
+## 测试记录
+
+2026-11-24 本地源码验证：native 228/228，js、wasm、wasm-gc 各 180/180。四个后端的严格编译检查均通过。
 
 ## 许可证
 

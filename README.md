@@ -287,10 +287,10 @@ sequenceDiagram
 ```bash
 moon check
 moon check --target js --deny-warn   # 0 警告
-moon test --target wasm              # 180/180
-moon test --target wasm-gc           # 180/180
-moon test --target js                # 180/180
-moon test --target native            # 228/228
+moon test --target wasm              # 181/181
+moon test --target wasm-gc           # 181/181
+moon test --target js                # 181/181
+moon test --target native            # 229/229
 moon run examples/pubsub
 moon run examples/resume
 python scripts/check_cli_loopback.py  # 本地 TCP 对端验证命令行 pub 和 sub --once
@@ -348,7 +348,7 @@ mosquitto_sub -h 127.0.0.1 -t 'sensors/#' -v
 - **坏协议帧（已修，2026-11-10）**：`core/Framer` 现在区分半包与畸形头。畸形头（保留报文类型、剩余长度超 4 字节）或缓冲超过协议最大帧时，清空缓冲并返回 `Err`；`ClientCore::feed` 把它转成 `FramerError` 事件，调用方据此断开连接。半包仍按原语义等下一批字节。
 - **读超时**：单次 socket 读默认 5 秒（`wait_read`），CONNACK/PUBACK/PINGRESP 等同步等待不会永久挂起。跨公网 / 大报文体 / broker 回包慢时用 `connect_opts_with_timeout` 或 `connect_with_conn_timeout` 放宽；读超时会把连接标成 `desynced`（帧边界已丢），只能重连，所以宁可设宽一些。
 - **浏览器自动重连上限**：`browser/` 断线后 1 秒重连，**连续失败**最多 3 次；每次连上成功即把计数归零，长期在线不会耗尽配额。连续 3 次失败后刷新页面才会重新建立连接。
-- **`client/` 层测试**：39 条白盒单测（`client/client_wbtest.mbt`），经 `Conn` 接缝注入脚本化假连接，覆盖 CONNECT/CONNACK 各分支、QoS0/1/2 发布握手、SUBACK、poll 派发与 QoS2 去重、自动心跳、断开、分帧上下限、握手等待期间（含 QoS2 等 PUBREC、等 PUBCOMP 两个等待点）的插帧派发（当前源码 wasm-gc 180 / native 228）。native + C FFI 无法在 wasm 后端实例化。
+- **`client/` 层测试**：39 条白盒单测（`client/client_wbtest.mbt`），经 `Conn` 接缝注入脚本化假连接，覆盖 CONNECT/CONNACK 各分支、QoS0/1/2 发布握手、SUBACK、poll 派发与 QoS2 去重、自动心跳、断开、分帧上下限、握手等待期间（含 QoS2 等 PUBREC、等 PUBCOMP 两个等待点）的插帧派发（当前源码 wasm-gc 181 / native 229）。native + C FFI 无法在 wasm 后端实例化。
 - **首条订阅消息**：原生客户端可将早于 SUBACK 的首条 PUBLISH 交给新过滤器的回调；订阅遭拒时会撤销该注册。运行 `python scripts/check_cli_loopback.py` 可通过回环 TCP 复现这个时序，并核对客户端回送的 PUBACK。
 - **native 重连的入站 QoS2 去重**：`reconnect` 在 `session_present=1` 时保留旧客户端的 `inbound_qos2` 表，避免 broker 重发「已派发、PUBREL 尚未完成」的 PUBLISH 被重复派发；`session_present=0` 时清空。这条路径需要真实 TCP，未纳入假连接单测。
 - **`browser/` 层**：WebSocket 的 IO 仍然没有自动测试（依赖 `extern "js"`，只能靠 `docs/demo/` 手工验证与 `docs/CASES.md` 的 I/O 记录；改 `browser/` 后必须重跑 `scripts/build-demo.ps1` 并手工回归 demo 页）。但**决策层已有单测**：事件 → 动作的映射统一走 `core/plan_event`（`core/dispatch_wbtest.mbt` 8 条），拒绝 CONNACK 与畸形帧都必须走「关连接」分支，被拒的 SUBACK 必须走 `SubackRejected` 而不是「订阅成功」，不会再被 `_ => ()` 静默吞掉。
@@ -358,7 +358,7 @@ mosquitto_sub -h 127.0.0.1 -t 'sensors/#' -v
 
 ## 测试记录
 
-2026-11-25 本地源码验证：native 228/228，js、wasm、wasm-gc 各 180/180。四个后端的严格编译检查均通过。
+2026-11-25 本地源码验证：native 229/229，js、wasm、wasm-gc 各 181/181。四个后端的严格编译检查均通过。
 
 ## 许可证
 

@@ -39,7 +39,7 @@
 - `Framer::new_limited(limit)` / `Framer::limit()` 与 `ClientCore::new_with_frame_limit(opts, limit)`：帧长上限从写死的协议上限（约 256 MB）改成可收紧。旧实现只在缓冲已经超过上限时返回 `framer buffer overflow`，对端只要发一帧 `30 FF FF FF 7F`（声明 268 MB 载荷）然后不再发送，本端就会一直往缓冲里攒字节，直到攒满 256 MB 才报错。新实现在解析出固定头后先比 `total > limit`，超了立刻返回 `framer: frame exceeds limit N` 并清缓冲，不攒载荷；`Framer::new()` 的默认上限仍是协议上限，已有调用方行为不变。补 3 条回归（超限立刻拒且缓冲清空、限内照常切两帧、`ClientCore` 把它落成 `FramerError` 事件）。
 - `cmd/moon-mqtt`：native 可执行命令行客户端，`pub` 与 `sub` 各一条命令。参数个数、端口范围（1..65535）、发布主题与订阅过滤器都在连接前校验，失败打印原因并以 1 退出。没有单元测试，参数与拒绝路径是 2026-11-18 实跑的。
 
-- `DELIVERY.md`：验收条款 vs 证据的对照，并明确区分三层验证强度——纯计算层四后端有自动化测试，`browser/` 与 `transport/`、`client/` 只有手工/示例级验证。
+- `DELIVERY.md`：各模块的功能与测试覆盖情况，并明确区分三层验证强度——纯计算层四后端有自动化测试，`browser/` 与 `transport/`、`client/` 只有手工/示例级验证。
 
 - `core/CoreEvent::MalformedFrame(类型号, 原因)`：已知入站报文的解码失败单独上报，`plan_event` 映射到 `Fatal`（§4.8 要求关闭连接）。此前所有 `Err` 都被压成 `UnknownPacketType` 且丢掉原因文本，一条因 topic 非法被拒的 QoS1 PUBLISH 与「不认识的报文类型」在日志里无法区分。
 
@@ -235,7 +235,7 @@
 - `transport/moon.pkg` 登记 `native-stub`，`tcp_stub.c` 用 MSVC `#pragma comment(lib, "ws2_32.lib")` 带上 Winsock 库：真实 native 消费者（`examples`、外部 `connect_opts` 调用）不再报 LNK2019 `unresolved external symbol mqtt_tcp_connect`。
 - `async/` 会话语义：CONNACK 之前调用 `subscribe` / `unsubscribe` 不再产生报文；收到 `session_present=1` 的成功 CONNACK 后自动重发在途 QoS1/2 报文（此前待发队列为空，断线前未确认的消息永久丢失）；`session_present=0` 时清空本地在途。
 - `tcp_stub.c`：Winsock 初始化提前到域名解析之前（此前 `getaddrinfo` 早于 `WSAStartup`）；POSIX 分支 `FD_SET` 改用 `int`（此前套用 Windows 的 `SOCKET` 类型，POSIX 下编译不过）。
-- `client/` 同步握手期间不再丢入站 PUBLISH：`publish`（等 PUBACK/PUBREC/PUBCOMP）、`subscribe`（等 SUBACK）、`ping`（等 PINGRESP）统一走 `read_control`，途中到达的业务 PUBLISH 照常按订阅表派发、入站 PUBREL 照常回 PUBCOMP。此前这些等待把非目标帧当 `"expected XXX"` 错误返回，消息被读出 socket 后丢弃，`poll` 也补不回来——这是十月轮验收未通过的直接原因。
+- `client/` 同步握手期间不再丢入站 PUBLISH：`publish`（等 PUBACK/PUBREC/PUBCOMP）、`subscribe`（等 SUBACK）、`ping`（等 PINGRESP）统一走 `read_control`，途中到达的业务 PUBLISH 照常按订阅表派发、入站 PUBREL 照常回 PUBCOMP。此前这些等待把非目标帧当 `"expected XXX"` 错误返回，消息被读出 socket 后丢弃，`poll` 也补不回来。
 - `protocol/` PUBLISH 解码收紧：拒绝 QoS0 报文带 DUP=1（QoS0 无重传语义，§3.3.2.3），拒绝 QoS1/2 报文 packet_id=0（§2.3.1）；QoS 大于 0 的合法 DUP 重传不受影响，并补对应回归测试。
 
 ### Changed
@@ -257,7 +257,7 @@
 
 ### Changed
 
-- 测试数 82/85 → 82/107；README / ROADMAP / `docs/ARCHITECTURE.md` / 申报书同步口径。
+- 测试数 82/85 → 82/107；README / ROADMAP / `docs/ARCHITECTURE.md` 同步口径。
 - 版本 0.3.2 → 0.3.3。
 
 ## [0.3.2] - 2026-10-22
@@ -301,7 +301,7 @@
 - 测试数随 `core/` 新增用例增至 wasm-gc 77/77、native 80/80（74→77 / 77→80）。
 - `browser/` 的 JS FFI 边界改用 `FixedArray[Int]` 传字节，`moon check --target js --deny-warn` 通过，0 警告。
 - README 改成浏览器优先叙述：开头讲 WebSocket 宿主与 QoS0/1/2，新增「在线 demo」小节和无头 Chrome 实测日志；Node 运行降到「命令行验证」一节。安装版本同步 0.3.0。
-- 申报书压到一页，浏览器证据换成无头 Chrome 日志，测试数改为 wasm-gc 77/77、native 80/80。
+- 浏览器测试记录采用无头 Chrome 日志，测试数改为 wasm-gc 77/77、native 80/80。
 
 ## [0.2.0] - 2026-10-20
 

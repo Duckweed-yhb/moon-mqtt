@@ -2,7 +2,7 @@
 
 > 更新：2026-11-09
 > 当前版本：0.3.4（mooncakes latest）
-> 状态：对照官网验收 9 条自检通过；浏览器 demo 已上线
+> 状态：浏览器 demo 已上线
 
 ## 总评
 
@@ -56,7 +56,7 @@
 
 - `client/` 层 `Conn` 接缝 + 脚本化假连接，补 22 条主路径单测（`client_wbtest.mbt` 共 25 条）
 - `browser/` 自动重连成功后归零失败计数：原 `MAX_RECONNECT=3` 实为「整页共 3 次」，现为「连续失败最多 3 次」
-- 测试数 82/85 → 82/107；README / `docs/ARCHITECTURE.md` / 申报书同步
+- 测试数 82/85 → 82/107；README / `docs/ARCHITECTURE.md` 同步
 
 ### 0.3.4（2026-11-07）
 

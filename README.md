@@ -13,7 +13,7 @@ MoonBit 写的 MQTT 3.1.1 客户端。浏览器里走 WebSocket，native 上走 
 | native | `client/` | 阻塞式，自动心跳；调用 `reconnect()` 后自动 replay |
 | 纯计算层 | `protocol/` `session/` `core/` | wasm / wasm-gc / js / native 四后端可测 |
 
-## 本地验收：两个终端收发一条消息
+## 在两个终端中发布和订阅消息
 
 以下命令在仓库根目录运行。CLI 使用 MQTT 3.1.1、明文 TCP、匿名连接和 QoS 1。先启动允许本机匿名连接的 broker，例如在单独的终端运行 `mosquitto -p 1883`。
 
@@ -336,21 +336,16 @@ mosquitto_sub -h 127.0.0.1 -t 'sensors/#' -v
 #    代码见上文「Native TCP」
 ```
 
-## AI 工具使用说明
+## 测试依据
 
-开发中用了 AI 编程工具，目标、技术路径、质量边界和开源合规由参赛者本人把控：
-
-- AI 辅助了报文编解码的样板代码、单测用例生成、README 初稿润色。
-- 人把控了选题、分层、QoS 状态机边界条件、C FFI 边界设计、已知限制的如实声明、与 mooncakes 现有项目的查重。
-- AI 生成的单测都由人对照 OASIS MQTT 3.1.1 规范核过断言；编解码有往返测试（encode → decode → 字段比对）；CI 四后端全绿才合并。
-- 不照搬其他开源项目代码（API 参考 MQTT.js / Paho C，实现是 MoonBit 重写）；不把 AI 生成的测试数据当真理。
+编解码测试按 OASIS MQTT 3.1.1 规范核对报文字段，并验证编码、解码后的字段一致性。
 
 ## 已知限制
 
 - **会话快照落盘**：`SessionStore` 提供 `snapshot()` / `restore()` 字节级原语，写盘由调用方自己做，库不碰文件。
 - **`transport/` 和 `client/` 仅 native**：依赖 C FFI socket。`protocol/`、`session/`、`core/` 四后端可测；浏览器走 `browser/` + WebSocket 胶水层，已端到端验证。`browser/` 仅 js 后端。
 - **阻塞式 API**：`client/` 是阻塞的，适合 CLI / 边缘遥测；高并发长连接要异步封装。`async/` 目前是非阻塞外观骨架（`AsyncClient` 由调用方驱动 `feed_bytes` / `drain_pending` / `drain_events`），还没有接真实非阻塞 IO 运行时。
-- **同步握手期间收到 PUBLISH（已修，2026-11-07）**：`publish` 等 PUBACK/PUBREC/PUBCOMP、`subscribe` 等 SUBACK、`ping` 等 PINGRESP 的等待统一走 `read_control`，途中到达的业务 PUBLISH 照常按订阅表派发、入站 PUBREL 照常回 PUBCOMP，不再当成「非目标帧」丢弃。10 月轮验收未通过的直接原因就是这条。
+- **同步握手期间收到 PUBLISH（已修，2026-11-07）**：`publish` 等 PUBACK/PUBREC/PUBCOMP、`subscribe` 等 SUBACK、`ping` 等 PINGRESP 的等待统一走 `read_control`，途中到达的业务 PUBLISH 照常按订阅表派发、入站 PUBREL 照常回 PUBCOMP，不再当成「非目标帧」丢弃。
 - **坏协议帧（已修，2026-11-10）**：`core/Framer` 现在区分半包与畸形头。畸形头（保留报文类型、剩余长度超 4 字节）或缓冲超过协议最大帧时，清空缓冲并返回 `Err`；`ClientCore::feed` 把它转成 `FramerError` 事件，调用方据此断开连接。半包仍按原语义等下一批字节。
 - **读超时**：单次 socket 读默认 5 秒（`wait_read`），CONNACK/PUBACK/PINGRESP 等同步等待不会永久挂起。跨公网 / 大报文体 / broker 回包慢时用 `connect_opts_with_timeout` 或 `connect_with_conn_timeout` 放宽；读超时会把连接标成 `desynced`（帧边界已丢），只能重连，所以宁可设宽一些。
 - **浏览器自动重连上限**：`browser/` 断线后 1 秒重连，**连续失败**最多 3 次；每次连上成功即把计数归零，长期在线不会耗尽配额。连续 3 次失败后刷新页面才会重新建立连接。

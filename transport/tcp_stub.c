@@ -59,54 +59,46 @@ int64_t mqtt_tcp_connect(moonbit_string_t host, int32_t port) {
 
   int32_t hn = (int32_t)Moonbit_array_length(host);
   char hbuf[256];
-  if (hn >= (int32_t)sizeof(hbuf)) {
-    hn = (int32_t)sizeof(hbuf) - 1;
+  if (hn == 0 || hn >= (int32_t)sizeof(hbuf) || port < 1 || port > 65535) {
+    return -1;
   }
   for (int32_t i = 0; i < hn; i++) {
-    hbuf[i] = (char)(host[i] & 0xFF);
+    /* Accept numeric addresses or DNS names in ASCII (including IDNA A-labels). */
+    if (host[i] == 0 || host[i] > 127) return -1;
+    hbuf[i] = (char)host[i];
   }
   hbuf[hn] = 0;
 
-  struct sockaddr_in sa;
-  memset(&sa, 0, sizeof(sa));
-  sa.sin_family = AF_INET;
-  sa.sin_port = htons((unsigned short)port);
-  if (inet_pton(AF_INET, hbuf, &sa.sin_addr) != 1) {
-    /* host 是域名：用 getaddrinfo 解析 */
-    struct addrinfo hints, *res = NULL;
-    memset(&hints, 0, sizeof(hints));
-    hints.ai_family = AF_INET;
-    hints.ai_socktype = SOCK_STREAM;
-    char portstr[16];
-    snprintf(portstr, sizeof(portstr), "%d", port);
-    if (getaddrinfo(hbuf, portstr, &hints, &res) != 0 || res == NULL) {
-      return -1;
-    }
-    sa = *(struct sockaddr_in *)res->ai_addr;
-    freeaddrinfo(res);
-  }
+  struct addrinfo hints, *addresses = NULL;
+  memset(&hints, 0, sizeof(hints));
+  hints.ai_family = AF_UNSPEC;
+  hints.ai_socktype = SOCK_STREAM;
+  hints.ai_protocol = IPPROTO_TCP;
+  char service[6];
+  snprintf(service, sizeof(service), "%d", port);
+  if (getaddrinfo(hbuf, service, &hints, &addresses) != 0) return -1;
 
+  int64_t result = -1;
+  for (struct addrinfo *ai = addresses; ai != NULL; ai = ai->ai_next) {
 #ifdef _WIN32
-  SOCKET sock = socket(AF_INET, SOCK_STREAM, 0);
-  if (sock == INVALID_SOCKET) {
-    return -1;
-  }
-  if (connect(sock, (struct sockaddr *)&sa, sizeof(sa)) != 0) {
-    closesocket(sock);
-    return -1;
-  }
-  return (int64_t)sock;
+    SOCKET sock = socket(ai->ai_family, ai->ai_socktype, ai->ai_protocol);
+    if (sock == INVALID_SOCKET) continue;
 #else
-  int sock = socket(AF_INET, SOCK_STREAM, 0);
-  if (sock < 0) {
-    return -1;
-  }
-  if (connect(sock, (struct sockaddr *)&sa, sizeof(sa)) != 0) {
-    close(sock);
-    return -1;
-  }
-  return (int64_t)sock;
+    int sock = socket(ai->ai_family, ai->ai_socktype, ai->ai_protocol);
+    if (sock < 0) continue;
 #endif
+    if (connect(sock, ai->ai_addr, (int)ai->ai_addrlen) == 0) {
+      result = (int64_t)sock;
+      break;
+    }
+#ifdef _WIN32
+    closesocket(sock);
+#else
+    close(sock);
+#endif
+  }
+  freeaddrinfo(addresses);
+  return result;
 }
 
 /* 写入全部字节；循环 send/write 直到全部写完或出错。

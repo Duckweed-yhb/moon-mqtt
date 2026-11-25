@@ -60,16 +60,23 @@ def exchange(listener, mode):
         assert frame(stream, 0xE0) == b""
 
 
-def check(mode):
-    with socket.socket() as listener, ThreadPoolExecutor(1) as worker:
-        listener.bind(("127.0.0.1", 0))
+def check(mode, family=socket.AF_INET, client_host=None):
+    with socket.socket(family) as listener, ThreadPoolExecutor(1) as worker:
+        address = "::1" if family == socket.AF_INET6 else "127.0.0.1"
+        try:
+            listener.bind((address, 0))
+        except OSError:
+            if family != socket.AF_INET6:
+                raise
+            print("IPv6 loopback unavailable on this host")
+            return
         listener.listen(1)
         listener.settimeout(30)
         peer = worker.submit(exchange, listener, mode)
         arg = PAYLOAD.decode() if mode == "pub" else "--once"
         cli = subprocess.run(
             ["moon", "run", "cmd/moon-mqtt", "--target", "native", "--", "sub" if mode == "eof" else mode,
-             "127.0.0.1", str(listener.getsockname()[1]), TOPIC.decode(), arg],
+             client_host or address, str(listener.getsockname()[1]), TOPIC.decode(), arg],
             capture_output=True, encoding="utf-8", timeout=40,
         )
         peer.result()
@@ -81,10 +88,13 @@ def check(mode):
         assert cli.returncode == 0, (cli.stdout, cli.stderr)
         expected = "PUBACK " + TOPIC.decode() if mode == "pub" else TOPIC.decode() + " " + LARGE_PAYLOAD.decode()
         assert expected in cli.stdout.splitlines(), cli.stdout
-        print(f"{mode}: verified CLI output and wire acknowledgements")
+        print(f"{mode} ({client_host or address}): verified CLI output and wire acknowledgements")
 
 
 if __name__ == "__main__":
     check("pub")
     check("sub")
     check("eof")
+    check("pub", client_host="localhost")
+    if socket.has_ipv6:
+        check("pub", socket.AF_INET6)

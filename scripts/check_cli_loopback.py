@@ -91,6 +91,46 @@ def check(mode, family=socket.AF_INET, client_host=None):
         print(f"{mode} ({client_host or address}): verified CLI output and wire acknowledgements")
 
 
+
+def reconnect_exchange(listener, resumed):
+    topic = len(TOPIC).to_bytes(2, "big") + TOPIC
+    pid = bytes([0, 7])
+    for second in (False, True):
+        conn, _ = listener.accept()
+        with conn, conn.makefile("rb") as stream:
+            conn.settimeout(10)
+            connect = frame(stream, 0x10)
+            assert not connect[7] & 2
+            present = second and resumed
+            conn.sendall(bytes([0x20, 2, int(present), 0]))
+            if not present:
+                sub = frame(stream, 0x82)
+                assert sub[2:] == topic + bytes([2])
+                conn.sendall(bytes([0x90, 3]) + sub[:2] + bytes([2]))
+            body = topic + pid + bytes([2 if second and not resumed else 1])
+            conn.sendall(bytes([0x3C if present else 0x34, len(body)]) + body)
+            assert frame(stream, 0x50) == pid
+            if second:
+                conn.sendall(bytes([0x62, 2]) + pid)
+                assert frame(stream, 0x70) == pid
+                assert frame(stream, 0xE0) == b""
+
+
+def check_reconnect(resumed):
+    with socket.socket() as listener, ThreadPoolExecutor(1) as worker:
+        listener.bind(("127.0.0.1", 0))
+        listener.listen(1)
+        listener.settimeout(30)
+        peer = worker.submit(reconnect_exchange, listener, resumed)
+        cli = subprocess.run(
+            ["moon", "run", "examples/reconnect_sub", "--target", "native", "--",
+             str(listener.getsockname()[1])], capture_output=True, text=True, timeout=40,
+        )
+        peer.result()
+        assert cli.returncode == 0, cli.stderr
+        assert cli.stdout.splitlines() == (["delivery 1"] if resumed else ["delivery 1", "delivery 2"])
+        print(f"QoS2 reconnect: session_present={int(resumed)} verified")
+
 if __name__ == "__main__":
     check("pub")
     check("sub")
@@ -98,3 +138,5 @@ if __name__ == "__main__":
     check("pub", client_host="localhost")
     if socket.has_ipv6:
         check("pub", socket.AF_INET6)
+    check_reconnect(True)
+    check_reconnect(False)

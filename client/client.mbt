@@ -670,6 +670,9 @@ pub fn MqttClient::poll_loop(
   rounds : Int32,
   timeout_ms : Int32,
 ) -> Result[Unit, String] {
+  if rounds < 0 {
+    return Err("poll rounds must be non-negative")
+  }
   if timeout_ms < 0 {
     return Err("poll timeout must be non-negative")
   }

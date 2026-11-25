@@ -625,6 +625,8 @@ test "poll rejects negative timeout before touching the transport" {
   let c = f_connected([], out, closed)
   assert_eq(c.poll_once(-1), Err("poll timeout must be non-negative"))
   assert_eq(c.poll_loop(1, -1), Err("poll timeout must be non-negative"))
+  assert_eq(c.poll_loop(-1, 1), Err("poll rounds must be non-negative"))
+  assert_eq(c.poll_loop(0, 1), Ok(()))
   assert_eq(c.last_ping_ms[0], 0)
 }
 

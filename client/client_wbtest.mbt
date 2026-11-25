@@ -619,6 +619,16 @@ test "poll loop counts only idle waits toward keep alive" {
 }
 
 ///|
+test "poll rejects negative timeout before touching the transport" {
+  let out : Array[Array[Int32]] = []
+  let closed : Array[Int32] = []
+  let c = f_connected([], out, closed)
+  assert_eq(c.poll_once(-1), Err("poll timeout must be non-negative"))
+  assert_eq(c.poll_loop(1, -1), Err("poll timeout must be non-negative"))
+  assert_eq(c.last_ping_ms[0], 0)
+}
+
+///|
 test "poll loop pings after a full idle keep alive window" {
   let out : Array[Array[Int32]] = []
   let closed : Array[Int32] = []

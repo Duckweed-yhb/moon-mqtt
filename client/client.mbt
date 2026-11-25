@@ -578,6 +578,9 @@ pub fn MqttClient::poll_once(
   self : MqttClient,
   timeout_ms : Int32,
 ) -> Result[Bool, String] {
+  if timeout_ms < 0 {
+    return Err("poll timeout must be non-negative")
+  }
   // 帧边界已丢的连接不许假装「没数据」：否则调用方会一直 poll 下去，
   // 以为只是空闲，实际上每次读出来的都是垃圾。
   if self.desynced {
@@ -667,6 +670,9 @@ pub fn MqttClient::poll_loop(
   rounds : Int32,
   timeout_ms : Int32,
 ) -> Result[Unit, String] {
+  if timeout_ms < 0 {
+    return Err("poll timeout must be non-negative")
+  }
   let keep_ms = self.keep_alive * 1000
   let mut remaining = rounds
   while remaining > 0 {

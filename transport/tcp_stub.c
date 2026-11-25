@@ -242,6 +242,12 @@ void mqtt_tcp_close(int64_t fd) {
 /* 等 socket 可读。
    返回：0 = 数据可读；-1 = 超时；-2 = 错误。 */
 int32_t mqtt_tcp_wait_read(int64_t fd, int32_t timeout_ms) {
+#ifdef _WIN32
+  if ((SOCKET)fd == INVALID_SOCKET) return -2;
+#else
+  /* FD_SET requires a descriptor in [0, FD_SETSIZE). */
+  if (fd < 0 || fd >= FD_SETSIZE) return -2;
+#endif
   fd_set rfds;
   struct timeval tv;
   FD_ZERO(&rfds);

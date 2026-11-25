@@ -15,18 +15,18 @@ extern "C" fn tcp_connect_ffi(host : String, port : Int32) -> Int64 = "mqtt_tcp_
 extern "C" fn tcp_write_ffi(fd : Int64, data : String) -> Int32 = "mqtt_tcp_write"
 
 ///|
-extern "C" fn tcp_read_ffi(fd : Int64, max : Int32) -> String = "mqtt_tcp_read"
+#borrow(status)
+extern "C" fn tcp_read_ffi(
+  fd : Int64,
+  max : Int32,
+  status : FixedArray[Int32],
+) -> String = "mqtt_tcp_read"
 
 ///|
 extern "C" fn tcp_close_ffi(fd : Int64) -> Unit = "mqtt_tcp_close"
 
 ///|
 extern "C" fn tcp_wait_read_ffi(fd : Int64, timeout_ms : Int32) -> Int32 = "mqtt_tcp_wait_read"
-
-///|
-/// 上一次 `tcp_read_ffi` 的结果码：0 = EOF，1 = 有数据，-1 = recv 出错，
-/// -2 = 分配缓冲失败。空串的含义靠它区分。
-extern "C" fn tcp_read_status_ffi(fd : Int64) -> Int32 = "mqtt_tcp_read_status"
 
 ///|
 /// 已连接的原生 TCP 客户端。
@@ -86,9 +86,10 @@ pub fn TcpClient::read_some(
   if max <= 0 {
     return Err("TCP read: max must be positive, got " + max.to_string())
   }
-  let s = tcp_read_ffi(self.fd, max)
+  let status : FixedArray[Int32] = [0]
+  let s = tcp_read_ffi(self.fd, max, status)
   if s.length() == 0 {
-    return Err(read_empty_reason(self.fd))
+    return Err(read_empty_reason(status[0]))
   }
   let bytes : Array[Int32] = []
   for c in s {
@@ -128,8 +129,7 @@ pub fn TcpClient::wait_read(
 ///|
 /// 空串读回时按 C 侧记下的结果码给出原因：对端关闭、recv 出错、缓冲分配失败。
 /// 三者此前来都报同一句 EOF，调用方分不清是正常断链还是网络出错。
-fn read_empty_reason(fd : Int64) -> String {
-  let status = tcp_read_status_ffi(fd)
+fn read_empty_reason(status : Int32) -> String {
   if status == -2 {
     return "TCP read: out of memory"
   }

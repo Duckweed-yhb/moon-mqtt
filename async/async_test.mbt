@@ -286,3 +286,38 @@ test "reconnect discards undrained pending even without transport close" {
   assert_eq(fresh[0], 0x10)
   assert_eq(fresh.length(), 24)
 }
+
+///|
+/// 评审回归：session_present=0 的重连里，core.feed 先清会话再分配一个
+/// packet_id 编重订帧。胶水层若在事件分发时再 reset 一次，store 的 next_id
+/// 会退回去，紧接着的 QoS1 PUBLISH 就与尚未 SUBACK 的 SUBSCRIBE 撞号。
+/// MQTT 4.4 要求同一个会话内未确认的控制报文不得共用 packet_id。
+test "resubscribe pid is not reused by the following publish" {
+  let client = @async.AsyncClient::new(
+    @protocol.ConnectPacket::new("async-test"),
+  )
+  let _ = client.drain_pending()
+  client.feed_bytes([0x20, 0x02, 0x00, 0x00])
+  let _ = client.drain_events()
+  client.subscribe("sensors/#", @protocol.qos1())
+  let _ = client.drain_pending()
+  client.feed_bytes([0x90, 0x03, 0x00, 0x01, 0x01])
+  let _ = client.drain_events()
+  client.on_transport_close()
+  client.reconnect()
+  let _ = client.drain_pending()
+  // 新会话：broker 丢了订阅，core 自动重订。
+  client.feed_bytes([0x20, 0x02, 0x00, 0x00])
+  let _ = client.drain_events()
+  let resub = client.drain_pending()
+  assert_eq(resub[0], 0x82)
+  let sub_pid = resub[2] * 256 + resub[3]
+  assert_true(sub_pid > 0)
+  // 重订帧还没等到 SUBACK，此时发 QoS1：pid 必须另取。
+  client.publish("t", [1], @protocol.qos1())
+  let out = client.drain_pending()
+  assert_eq(out[0], 0x32)
+  // PUBLISH 变长头：topic 长度(2) + topic "t"(1)，pid 紧接其后。
+  let pub_pid = out[5] * 256 + out[6]
+  assert_true(pub_pid != sub_pid)
+}

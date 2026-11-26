@@ -282,10 +282,9 @@ pub fn browser_on_message(bytes : Array[Int32]) -> Unit {
             match @core.plan_event(e) {
               @core.DispatchAction::Connected(session_present) => {
                 if !session_present {
-                  // broker 已丢会话：清掉本地在途，避免僵尸重放。
-                  // 已记录的订阅表不受影响（reset_session 只清在途）。
-                  core.reset_session()
-                  // 重订帧由 core.feed() 追加进 outgoing，这里只记数量便于排查。
+                  // broker 已丢会话：清在途、生成重订帧都由 core.feed 的 CONNACK
+                  // 分支完成，这里不能再 reset——重订帧的 packet_id 已经分配出去，
+                  // 再清一次会让下一条 PUBLISH 复用同一个 id。
                   let subs = core.subscriptions()
                   println(
                     "[browser] session_present=0, resubscribe " +

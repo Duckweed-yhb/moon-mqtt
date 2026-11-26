@@ -70,9 +70,10 @@ pub fn AsyncClient::feed_bytes(
                       self.pending.push(b)
                     }
                   }
-                } else {
-                  self.core.reset_session()
                 }
+              // session_present=false 的重置与重订帧都由 core.feed 在 CONNACK
+              // 分支里完成。这里再 reset 一次会把重订帧刚占用的 packet_id
+              // 退回去，紧接着的 PUBLISH 就会复用同一个 id。
               _ => ()
             }
           _ => ()

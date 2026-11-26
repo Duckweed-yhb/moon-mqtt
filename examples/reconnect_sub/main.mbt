@@ -1,7 +1,13 @@
 ///|
 fn main {
-  let port = @string.parse_int(@env.args()[1]) catch {
-    _ => abort("invalid port")
+  let args = @env.args()
+  if args.length() != 2 {
+    println("usage: reconnect_sub PORT")
+    @env.exit(2)
+  }
+  let port = @string.parse_int(args[1]) catch { _ => abort("invalid port") }
+  if port < 1 || port > 65535 {
+    abort("port must be in 1..65535")
   }
   let opts = @protocol.ConnectPacket::new("resume-sub").with_clean_session(
     false,

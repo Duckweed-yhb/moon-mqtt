@@ -287,10 +287,10 @@ sequenceDiagram
 ```bash
 moon check
 moon check --target js --deny-warn   # 0 警告
-moon test --target wasm              # 181/181
-moon test --target wasm-gc           # 181/181
-moon test --target js                # 181/181
-moon test --target native            # 230/230
+moon test --target wasm              # 182/182
+moon test --target wasm-gc           # 182/182
+moon test --target js                # 182/182
+moon test --target native            # 231/231
 moon run examples/pubsub
 moon run examples/resume
 python scripts/check_cli_loopback.py  # 本地 TCP 对端验证命令行 pub 和 sub --once
@@ -358,7 +358,7 @@ mosquitto_sub -h 127.0.0.1 -t 'sensors/#' -v
 
 ## 测试记录
 
-2026-11-25 本地源码验证：native 230/230，js、wasm、wasm-gc 各 181/181。四个后端的严格编译检查均通过。
+2026-11-26 本地源码验证：native 231/231，js、wasm、wasm-gc 各 182/182。四个后端的严格编译检查均通过。
 
 ## 许可证
 

@@ -9,6 +9,7 @@
 - `examples/reconnect_sub` 在读取端口参数前检查命令行长度与端口范围，直接运行示例时给出用法，不再因数组越界崩溃。
 - `poll_once` 与 `poll_loop` 在进入 socket 等待前拒绝负超时，避免把非法 `timeval` 交给原生 `select`，并保证心跳累计值不被负数倒扣；`poll_loop` 同时拒绝负轮数。零超时仍表示立即轮询，零轮数仍是合法的空操作。
 - 原生 TCP 每次读取都通过本次 FFI 调用返回状态码，区分数据、对端 EOF、读取错误和内存不足。并发连接无需共享状态表。回环测试核对超过 16 KiB 的 UTF-8 消息，并验证对端正常关闭后的 CLI 退出结果。
+- `browser` 与 `async` 在 CONNACK `session_present=0` 后重复调用 `reset_session`：`core.feed` 已经清过会话并按重订帧分配了 packet_id，再清一次会把 `next_id` 退回去，紧随其后的 QoS1/2 PUBLISH 复用同一个 id，与尚未 SUBACK 的 SUBSCRIBE 撞号。删掉两处重复调用，补一条 async 回归（native 230 → 231，其余三后端 181 → 182）。
 
 ## [0.3.17] - 2026-11-22
 

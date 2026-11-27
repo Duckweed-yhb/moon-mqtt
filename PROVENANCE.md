@@ -43,7 +43,7 @@ against the specification before being kept. See the "AI tool usage" section of
 
 ## Identity
 
-All commits are authored by `Duckweed-yhb <3071974740@qq.com>`, the same person
+All commits are authored by the GitHub account `Duckweed-yhb`, the same person
 who registered the project. No other person's name, account, or identity is used.
 
 ## Licence

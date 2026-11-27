@@ -280,7 +280,7 @@ sequenceDiagram
 - [x] 主题校验（§4.7）：publish 的 topic name 拒绝空串 / 通配符 / U+0000；subscribe 的过滤器拒绝 `a/#/b`、`a/x+` 这类越界写法；解码侧同样拒绝 broker 发来的非法 topic
 - [x] 会话恢复会核对快照中的 QoS 与握手阶段，拒绝将 QoS 1 消息恢复为等待 PUBCOMP。
 - [x] `moon check --deny-warn` 四个后端 0 警告
-- [x] 发布到 mooncakes（0.3.16）
+- [x] 发布到 mooncakes（0.3.17）
 
 ## 构建与测试
 
@@ -358,7 +358,7 @@ mosquitto_sub -h 127.0.0.1 -t 'sensors/#' -v
 
 ## 测试记录
 
-2026-11-26 本地源码验证：native 231/231，js、wasm、wasm-gc 各 182/182。四个后端的严格编译检查均通过。
+2026-11-27 本地源码验证：native 231/231，js、wasm、wasm-gc 各 182/182。四个后端的严格编译检查均通过。
 
 ## 许可证
 
